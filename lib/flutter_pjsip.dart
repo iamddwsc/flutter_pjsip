@@ -8,7 +8,12 @@ class FlutterPjsip {
   final StreamController<Map<dynamic, dynamic>> _sipStateController =
       StreamController<Map<dynamic, dynamic>>.broadcast();
 
+<<<<<<< HEAD
   Stream<Map<dynamic, dynamic>> get onSipStateChanged => _sipStateController.stream;
+=======
+  Stream<Map<dynamic, dynamic>> get onSipStateChanged =>
+      _sipStateController.stream;
+>>>>>>> c6101e2 (Initial commit)
 
   static final pjsip = FlutterPjsip();
 
@@ -16,12 +21,18 @@ class FlutterPjsip {
   factory FlutterPjsip() => _getInstance();
 
   static FlutterPjsip get instance => _getInstance();
+<<<<<<< HEAD
   static FlutterPjsip _instance;
 
   static FlutterPjsip _getInstance() {
     if (_instance == null) {
       _instance = new FlutterPjsip._internal();
     }
+=======
+  static FlutterPjsip _instance = FlutterPjsip._internal();
+
+  static FlutterPjsip _getInstance() {
+>>>>>>> c6101e2 (Initial commit)
     return _instance;
   }
 
@@ -55,13 +66,34 @@ class FlutterPjsip {
   }
 
   ///pjsip登录
+<<<<<<< HEAD
   Future<bool> pjsipLogin({String username, String password, String ip, String port}) async {
     Map<String, String> map = {"username": username, "password": password, "ip": ip, "port": port};
+=======
+  Future<bool> pjsipLogin(
+      {required String username,
+      required String password,
+      required String ip,
+      required String port}) async {
+    Map<String, String> map = {
+      "username": username,
+      "password": password,
+      "ip": ip,
+      "port": port
+    };
+>>>>>>> c6101e2 (Initial commit)
     return await _channel.invokeMethod("method_pjsip_login", map);
   }
 
   ///pjsip拨打电话
+<<<<<<< HEAD
   Future<bool> pjsipCall({String username, String ip, String port}) async {
+=======
+  Future<bool> pjsipCall(
+      {required String username,
+      required String ip,
+      required String port}) async {
+>>>>>>> c6101e2 (Initial commit)
     Map<String, String> map = {"username": username, "ip": ip, "port": port};
     return await _channel.invokeMethod("method_pjsip_call", map);
   }

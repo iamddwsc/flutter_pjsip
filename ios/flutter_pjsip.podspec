@@ -16,7 +16,11 @@ A new Flutter plugin.
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
   s.resources = ['Classes/PJSIPClass/Assets/*.png','Classes/PJSIPClass/Assets/*.wav']
+<<<<<<< HEAD
 #  s.dependency 'pjsip','~> 2.8.0'
+=======
+  # s.dependency 'pjsip','~> 2.9.0'
+>>>>>>> c6101e2 (Initial commit)
   s.dependency 'Masonry', '~> 0.6.3'
   s.ios.deployment_target = '8.0'
 end
