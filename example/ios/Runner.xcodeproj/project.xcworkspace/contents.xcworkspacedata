@@ -2,6 +2,10 @@
 <Workspace
    version = "1.0">
    <FileRef
+<<<<<<< HEAD
       location = "group:Runner.xcodeproj">
+=======
+      location = "self:">
+>>>>>>> 4008c2f (* Fix error for Flutter version 3.27.1)
    </FileRef>
 </Workspace>

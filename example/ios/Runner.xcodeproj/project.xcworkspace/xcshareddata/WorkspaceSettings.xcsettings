@@ -2,12 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-<<<<<<< HEAD
-	<key>BuildSystemType</key>
-	<string>Original</string>
-=======
 	<key>PreviewsEnabled</key>
 	<false/>
->>>>>>> 4008c2f (* Fix error for Flutter version 3.27.1)
 </dict>
 </plist>
