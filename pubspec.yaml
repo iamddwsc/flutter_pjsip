@@ -1,26 +1,15 @@
 name: flutter_pjsip
 description: A new Flutter plugin.
 version: 0.0.3
-<<<<<<< HEAD
-author:
-homepage:
-
-environment:
-  sdk: ">=2.1.0 <3.0.0"
-=======
 homepage:
 
 environment:
   sdk: ">=2.12.0"
->>>>>>> c6101e2 (Initial commit)
 
 dependencies:
   flutter:
     sdk: flutter
-<<<<<<< HEAD
-=======
   fluttertoast: ^8.2.12
->>>>>>> c6101e2 (Initial commit)
 
 dev_dependencies:
   flutter_test:

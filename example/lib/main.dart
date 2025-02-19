@@ -13,11 +13,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   String _calltateText = '';
-<<<<<<< HEAD
-  FlutterPjsip _pjsip;
-=======
   late FlutterPjsip _pjsip;
->>>>>>> c6101e2 (Initial commit)
 
   @override
   void initState() {
@@ -69,45 +65,6 @@ class _MyAppState extends State<MyApp> {
         ),
         body: Column(
           children: <Widget>[
-<<<<<<< HEAD
-            RaisedButton(
-              child: Text('Sip初始化'),
-              onPressed: () => _sipInit(),
-            ),
-            RaisedButton(
-              child: Text('Sip登录'),
-              onPressed: () => _sipLogin(),
-            ),
-            RaisedButton(
-              child: Text('Sip打电话'),
-              onPressed: () => _sipCall(),
-            ),
-            RaisedButton(
-              child: Text('Sip登出'),
-              onPressed: () => _sipLogout(),
-            ),
-            RaisedButton(
-              child: Text('Sip销毁'),
-              onPressed: () => _sipDeinit(),
-            ),
-            RaisedButton(
-              child: Text('Sip接听'),
-              onPressed: () => _sipReceive(),
-            ),
-            RaisedButton(
-              child: Text('Sip拒接/挂断'),
-              onPressed: () => _sipRefuse(),
-            ),
-            RaisedButton(
-              child: Text('Sip免提'),
-              onPressed: () => _sipHandsFree(),
-            ),
-            RaisedButton(
-              child: Text('Sip静音'),
-              onPressed: () => _sipMute(),
-            ),
-            RaisedButton(
-=======
             ElevatedButton(
               child: Text('Sip初始化'),
               onPressed: () => _sipInit(),
@@ -145,7 +102,6 @@ class _MyAppState extends State<MyApp> {
               onPressed: () => _sipMute(),
             ),
             ElevatedButton(
->>>>>>> c6101e2 (Initial commit)
               child: Text('Sip通道销毁'),
               onPressed: () => _sipDispose(),
             ),
@@ -162,26 +118,17 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _sipLogin() async {
-<<<<<<< HEAD
-    bool loginSuccess =
-        await _pjsip.pjsipLogin(username: '1012', password: '123@jvtd', ip: '117.78.34.48', port: '6050');
-=======
     bool loginSuccess = await _pjsip.pjsipLogin(
         username: '1012',
         password: '123@jvtd',
         ip: '117.78.34.48',
         port: '6050');
->>>>>>> c6101e2 (Initial commit)
     showToast('登录', loginSuccess);
   }
 
   Future<void> _sipCall() async {
-<<<<<<< HEAD
-    bool callSuccess = await _pjsip.pjsipCall(username: '1010', ip: '117.78.34.48', port: '6050');
-=======
     bool callSuccess = await _pjsip.pjsipCall(
         username: '1010', ip: '117.78.34.48', port: '6050');
->>>>>>> c6101e2 (Initial commit)
     showToast('打电话', callSuccess);
   }
 
