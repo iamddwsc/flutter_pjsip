@@ -31,6 +31,8 @@
 /** pjsip销毁*/
 #define method_pjsip_deinit  @"method_pjsip_deinit"
 
+#define method_pjsip_login_with_info  @"method_pjsip_login_with_info"
+
 @implementation FlutterAppDelegate (Pjsip)
 
 - (void)setupPjsip:(UIApplication *)launchOptions rootController:(UIViewController *)rootController{
@@ -55,7 +57,7 @@
             if ([[PJSipManager manager] registerAccountWithName:[dict objectForKey:@"username"] password:[dict objectForKey:@"password"] IPAddress:[NSString stringWithFormat:@"%@:%@",[dict objectForKey:@"ip"],[dict objectForKey:@"port"]]]) {
                 result(@(YES));
             }else{
-                 result(@(NO));
+                result(@(NO));
             }
         }else if ([method isEqualToString:method_pjsip_call]) {/** 拨打电话*/
             NSLog(@"拨打的电话号码：%@",[dict objectForKey:@"username"]);
@@ -82,6 +84,13 @@
         }else if ([method isEqualToString:method_pjsip_deinit]) {/** 销毁*/
             [PJSipManager attempDealloc];
             result(@(YES));
+        }else if ([method isEqualToString:method_pjsip_login_with_info]) {
+            NSLog(@"Login with info: %@",[dict objectForKey:@"username"]);
+            if ([[PJSipManager manager] registerSIPAccountWithInfo: dict]) {
+                result(@(YES));
+            }else{
+                result(@(NO));
+            }
         }
     }];
 }

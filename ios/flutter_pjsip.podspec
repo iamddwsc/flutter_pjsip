@@ -12,12 +12,13 @@ A new Flutter plugin.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'Classes/**/*.h', 'Classes/**/*.m'
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
   s.resources = ['Classes/PJSIPClass/Assets/*.png','Classes/PJSIPClass/Assets/*.wav']
-  # s.dependency 'pjsip','~> 2.9.0'
-  s.dependency 'Masonry', '~> 0.6.3'
+  # s.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64' }
+  s.dependency 'pjsip'
+  s.dependency 'Masonry','~> 0.6.3'
   s.ios.deployment_target = '8.0'
 end
 

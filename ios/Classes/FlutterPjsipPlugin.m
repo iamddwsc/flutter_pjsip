@@ -3,11 +3,11 @@
 #include <pjsua-lib/pjsua.h>
 @implementation FlutterPjsipPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
-  FlutterMethodChannel* channel = [FlutterMethodChannel
-      methodChannelWithName:@"flutter_pjsip"
-            binaryMessenger:[registrar messenger]];
-  FlutterPjsipPlugin* instance = [[FlutterPjsipPlugin alloc] init];
-  [registrar addMethodCallDelegate:instance channel:channel];
+   FlutterMethodChannel* channel = [FlutterMethodChannel
+       methodChannelWithName:@"flutter_pjsip"
+             binaryMessenger:[registrar messenger]];
+   FlutterPjsipPlugin* instance = [[FlutterPjsipPlugin alloc] init];
+   [registrar addMethodCallDelegate:instance channel:channel];
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {

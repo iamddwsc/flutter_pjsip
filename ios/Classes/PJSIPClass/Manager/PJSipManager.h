@@ -38,11 +38,14 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 @interface PJSipManager : NSObject
 
 //单例服务
-+ (instancetype)manager;
++ (instancetype) manager;
++ (instancetype) shared;
 //销毁单例
 +(void)attempDealloc;
 //登录
 - (BOOL)registerAccountWithName:(NSString *)name password:(NSString *)password IPAddress:(NSString *)ipaddress;
+// Personal use
+- (BOOL)registerSIPAccountWithInfo: (NSDictionary *)info;
 //搭建环境
 - (BOOL)create;
 //拨号

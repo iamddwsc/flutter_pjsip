@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class FlutterPjsip {
@@ -65,6 +66,18 @@ class FlutterPjsip {
       "port": port
     };
     return await _channel.invokeMethod("method_pjsip_login", map);
+  }
+
+  // Login with map data
+  Future<bool> pjsipLoginWithInfo(Map<String, dynamic> info) async {
+    try {
+      final bool result =
+          await _channel.invokeMethod("method_pjsip_login_with_info", info);
+      return result;
+    } catch (e) {
+      debugPrint("Error registering SIP account: $e");
+      return false;
+    }
   }
 
   ///pjsip拨打电话

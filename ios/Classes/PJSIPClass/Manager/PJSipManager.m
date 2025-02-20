@@ -15,6 +15,9 @@
 #import <AVFoundation/AVFoundation.h>
 #include <pjsua-lib/pjsua.h>
 #import "AVSound.h"
+#import <SipUtil.h>
+#import <CommonUtil.h>
+
 //原生传给flutter
 #define method_call_status_changed  @"method_call_state_changed"
 
@@ -45,8 +48,20 @@ static void on_reg_state(pjsua_acc_id acc_id);
 @implementation PJSipManager
 static PJSipManager * tmp = nil;
 static dispatch_once_t onceToken;
+int retryTime = 2;
 
-+ (instancetype)manager {
++ (instancetype) shared {
+    dispatch_once(&onceToken, ^{
+        tmp = [[PJSipManager alloc] init];
+        [tmp create];
+        [tmp callCenter];
+        
+    });
+    return tmp;
+}
+
+
++ (instancetype) manager {
     dispatch_once(&onceToken, ^{
         tmp = [[PJSipManager alloc] init];
         [tmp create];
@@ -69,7 +84,7 @@ static dispatch_once_t onceToken;
     
     static NSInteger i = 1;
     tmp.isMute = NO;
-//    NSLog(@"我执行了%ld次",i++);
+    //    NSLog(@"我执行了%ld次",i++);
     if (i > 2) {
         return YES;
     }
@@ -77,7 +92,7 @@ static dispatch_once_t onceToken;
     //    [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleIncommingCall:) name:@"SIPIncomingCallNotification" object:nil];
     //电话状态监听
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleCllStatusChanged:) name:@"SIPCallStatusChangedNotification" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleCllStatusChanged:) name:@"SIPCallStatusChangedNotification" object:nil];
     
     //sip环境初始化
     pj_status_t status;
@@ -151,6 +166,163 @@ static dispatch_once_t onceToken;
     }
     return YES;
 }
+
+// Personal use, you can change based on your data
+- (BOOL)registerSIPAccountWithInfo: (NSDictionary *)info {
+    
+    
+    /*  khai le comment
+     {
+     "outbound_proxy" = "<null>";
+     "phone_line" = 5116;
+     "phone_line_password" = "Ulgun9hP1b&";
+     "server_id" = 1;
+     "server_port" = 5060;
+     "server_type" = UDP;
+     "server_url" = "125.253.123.195";
+     status = off;
+     update = "2023-10-17T15:16:54.247";
+     }
+     */
+    
+    NSString *account = [info objectForKey: @"phone_line"];
+    NSString *password = [info objectForKey: @"phone_line_password"];
+    NSString *domain = [info objectForKey: @"server_url"];
+    
+    NSString *transport = [info objectForKey: @"server_type"];
+    if (transport == nil || transport==(id)[NSNull null] || [transport isEqualToString: @""]) {
+        transport = @"udp";
+    }
+    
+    long port = [CommonUtil getIdFromObjectInfo:info withKey:@"server_port"];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleRegisterStatus:) name:@"SIPRegisterStatusNotification" object:nil];
+    
+    //        [[NSUserDefaults standardUserDefaults] setInteger:[name integerValue] forKey:@"login_account_id"];
+    [[NSUserDefaults standardUserDefaults] setObject:SFM(@"%@:%ld", domain, port) forKey:@"server_uri"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    
+    //  register
+    pj_status_t status;
+    
+    // Register the account on local sip server
+    pjsua_acc_id acc_id;
+    pjsua_acc_config cfg;
+    pjsua_acc_config_default(&cfg);
+    
+    NSString *strId = SFM(@"sip:%@@%@", account, domain);
+    if (port > 0) {
+        strId = SFM(@"%@:%ld", strId, port);
+    }
+    
+    NSString *regUri = @"";
+    if (port > 0) {
+        regUri = SFM(@"sip:%@:%ld;transport=%@", domain, port, transport);
+    }else{
+        regUri = SFM(@"sip:%@;transport=%@", domain, transport);
+    }
+    //  NSString *regUri = SFM(@"sip:%@:%@;hide;transport=%@", domain, port, transport);
+    //  sip:151@vinhtt:5060
+    //  sip:vinhtt:5060;transport=UDP
+    
+    cfg.id = pj_str((char *)[strId UTF8String]);
+    cfg.reg_uri = pj_str((char *)[regUri UTF8String]);
+    cfg.cred_count = 1;
+    cfg.cred_info[0].realm = pj_str("*");
+    cfg.cred_info[0].scheme = pj_str("digest");
+    cfg.cred_info[0].username = pj_str((char *)[account UTF8String]);
+    cfg.cred_info[0].data_type = PJSIP_CRED_DATA_PLAIN_PASSWD;
+    cfg.cred_info[0].data = pj_str((char *)[password UTF8String]);
+    
+    NSString *proxy = [info objectForKey:@"outbound_proxy"];
+    if (![CommonUtil isNullOrEmpty: proxy]) {
+        NSString *proxyValue = SFM(@"sip:%@;lr", proxy);
+        //  outbound_proxy=sip:aa.bb.cc.dd:5060;lr
+        cfg.proxy_cnt=1;
+        cfg.proxy[0]=pj_str((char *)[proxyValue UTF8String]);
+    }
+    
+    /*  khai le comment
+     cfg.ice_cfg.enable_ice = FALSE;
+     cfg.ice_cfg_use = PJSUA_ICE_CONFIG_USE_DEFAULT;
+     cfg.sip_stun_use = PJSUA_STUN_USE_DISABLED;
+     */
+    
+    //  Kiểm tra tài khoản có đang bật STUN hay không?
+    BOOL stunEnable = false;
+    if (stunEnable) {
+        cfg.ice_cfg.enable_ice = false;
+        cfg.sip_stun_use = PJSUA_STUN_USE_DEFAULT;
+        cfg.media_stun_use = PJSUA_STUN_USE_DEFAULT;
+        
+    }else{
+        cfg.ice_cfg.enable_ice = false;
+        cfg.sip_stun_use = PJSUA_STUN_USE_DISABLED;
+        cfg.media_stun_use = PJSUA_STUN_USE_DISABLED;
+    }
+    
+    //  disable IPV6
+    cfg.ipv6_media_use = PJSUA_IPV6_DISABLED;
+    cfg.reg_timeout = 20;
+    cfg.reg_retry_interval = 0; //  0 to disable re-retry register
+    //  cfg.allow_via_rewrite = false;
+    
+    
+    NSString *strAgent = [SipUtil.shared userAgentForSIPAccount];
+    pjsip_generic_string_hdr CustomHeader;
+    pj_str_t name = pj_str("User-Agent");
+    pj_str_t value = pj_str((char *)[strAgent UTF8String]);
+    pjsip_generic_string_hdr_init2(&CustomHeader, &name, &value);
+    pj_list_push_back(&cfg.reg_hdr_list, &CustomHeader);
+    
+    pjsip_endpoint* endpoint = pjsua_get_pjsip_endpt();
+    pj_dns_resolver* resolver;
+    
+    if (endpoint != NULL) {
+        struct pj_str_t servers[] = {pj_str((char *)[domain UTF8String]) };
+        pjsip_endpt_create_resolver(endpoint, &resolver);
+        pj_dns_resolver_set_ns(resolver, 1, servers, NULL);
+        
+        // Init transport config structure
+        pjsua_transport_config trans_cfg;
+        pjsua_transport_config_default(&trans_cfg);
+        if (port > 0) {
+            trans_cfg.port = (int)port;
+        }
+        
+        if ([transport isEqualToString: transport_udp]) {
+            // Add UDP transport.
+            status = pjsua_transport_create(PJSIP_TRANSPORT_UDP, &trans_cfg, NULL);
+            if (status != PJ_SUCCESS){
+                NSLog(@"Error creating UDP transport");
+            }
+        }else if ([transport isEqualToString: transport_tcp]) {
+            // Add TCP transport.
+            status = pjsua_transport_create(PJSIP_TRANSPORT_TCP, &trans_cfg, NULL);
+            if (status != PJ_SUCCESS){
+                NSLog(@"Error creating TCP transport");
+            }
+        }else if ([transport isEqualToString: transport_tls]) {
+            // Add TLS transport.
+            status = pjsua_transport_create(PJSIP_TRANSPORT_TLS, &trans_cfg, NULL);
+            if (status != PJ_SUCCESS){
+                NSLog(@"Error creating TLS transport");
+            }
+        }
+        
+        status = pjsua_acc_add(&cfg, PJ_TRUE, &acc_id);
+        if (status != PJ_SUCCESS){
+            NSString *errorMessage = [NSString stringWithFormat:@"Login failed, error number returned：%d!", status];
+            NSLog(@"PJSIP === register error: %@", errorMessage);
+            return NO;
+        }
+        return YES;
+    } else {
+        return NO;
+    }
+//    return YES;
+}
+
 //登录
 - (BOOL)registerAccountWithName:(NSString *)name password:(NSString *)password IPAddress:(NSString *)ipaddress {
     if (name.length == 0 ||
@@ -167,6 +339,9 @@ static dispatch_once_t onceToken;
     [[NSUserDefaults standardUserDefaults] setObject:ipaddress forKey:@"server_uri"];
     [[NSUserDefaults standardUserDefaults] synchronize];
     
+    long port = [[ipaddress componentsSeparatedByString:@":"][1] longLongValue];
+    
+    pj_status_t status;
     
     pjsua_acc_id acc_id;
     pjsua_acc_config cfg;
@@ -175,15 +350,49 @@ static dispatch_once_t onceToken;
     pjsua_acc_config_default(&cfg);
     cfg.id = pj_str((char *)[NSString stringWithFormat:@"sip:%@@%@", name, ipaddress].UTF8String);
     // 这是URL放在请求URI的注册，看起来就像“SIP服务提供商”。如果需要注册，则应指定此字段。如果价值是空的，没有帐户注册将被执行。
-    cfg.reg_uri = pj_str((char *)[NSString stringWithFormat:@"sip:%@", ipaddress].UTF8String);
+    cfg.reg_uri = pj_str((char *)[NSString stringWithFormat:@"sip:%@;transport=%s", ipaddress, "TCP"].UTF8String);
     // 在注册失败时指定自动注册重试的时间间隔,0禁用自动重新注册
     cfg.reg_retry_interval = 0;
     cfg.cred_count = 1;
     // 凭证数组。如果需要注册，通常至少应该有一个凭据指定，成功地对服务提供程序进行身份验证。可以指定更多的凭据，例如，当请求被期望在路由集中的代理受到挑战时。
     cfg.cred_info[0].realm = pj_str("*");
+    cfg.cred_info[0].scheme = pj_str("digest");
     cfg.cred_info[0].username = pj_str((char *)name.UTF8String);
     cfg.cred_info[0].data_type = PJSIP_CRED_DATA_PLAIN_PASSWD;
     cfg.cred_info[0].data = pj_str((char *)password.UTF8String);
+    
+    NSString *proxy = @"vh.omicrm.com";
+    NSString *proxyValue = [NSString stringWithFormat:@"sip:%@;lr", proxy];
+    cfg.proxy_cnt=1;
+    cfg.proxy[0]=pj_str((char *)[proxyValue UTF8String]);
+    
+    //  Kiểm tra tài khoản có đang bật STUN hay không?
+    BOOL stunEnable = false;
+    if (stunEnable) {
+        cfg.ice_cfg.enable_ice = false;
+        cfg.sip_stun_use = PJSUA_STUN_USE_DEFAULT;
+        cfg.media_stun_use = PJSUA_STUN_USE_DEFAULT;
+        
+    }else{
+        cfg.ice_cfg.enable_ice = false;
+        cfg.sip_stun_use = PJSUA_STUN_USE_DISABLED;
+        cfg.media_stun_use = PJSUA_STUN_USE_DISABLED;
+    }
+    
+    //  disable IPV6
+    cfg.ipv6_media_use = PJSUA_IPV6_DISABLED;
+    cfg.reg_timeout = 20;
+    cfg.reg_retry_interval = 0; //  0 to disable re-retry register
+    
+    NSString *strAgent = [SipUtil.shared userAgentForSIPAccount];
+    pjsip_generic_string_hdr CustomHeader;
+    pj_str_t uaName = pj_str("User-Agent");
+    pj_str_t value = pj_str((char *)[strAgent UTF8String]);
+    pjsip_generic_string_hdr_init2(&CustomHeader, &uaName, &value);
+    pj_list_push_back(&cfg.reg_hdr_list, &CustomHeader);
+    
+    pjsip_endpoint* endpoint = pjsua_get_pjsip_endpt();
+    pj_dns_resolver* resolver;
     
     // 指定传入的视频是否自动显示在屏幕上
     //        cfg.vid_in_auto_show = PJ_TRUE;
@@ -194,10 +403,11 @@ static dispatch_once_t onceToken;
     
     cfg.vid_cap_dev = PJMEDIA_VID_DEFAULT_CAPTURE_DEV;
     //偶尔出BUG
-    pj_status_t status = pjsua_acc_add(&cfg, PJ_TRUE, &acc_id);
+    status = pjsua_acc_add(&cfg, PJ_TRUE, &acc_id);
+    
     if (status != PJ_SUCCESS) {
-        NSString *errorMessage = [NSString stringWithFormat:@"登录失败，返回错误号：%d!", status];
-        NSLog(@"register error: %@", errorMessage);
+        NSString *errorMessage = [NSString stringWithFormat:@"Login failed, error number returned：%d!", status];
+        NSLog(@"PJSIP === register error: %@", errorMessage);
         return NO;
         
     }
@@ -205,7 +415,14 @@ static dispatch_once_t onceToken;
 }
 -(BOOL)logOut{
     pjsua_acc_id acct_id = (pjsua_acc_id)[[NSUserDefaults standardUserDefaults] integerForKey:@"login_account_id"];
-    pj_status_t status = pjsua_acc_del(acct_id &_call_id);
+    pj_status_t status = 0;
+    if (acct_id == 0) {
+        acct_id = pjsua_acc_get_default();
+    }
+    if (pjsua_acc_is_valid(acct_id)) {
+        status = pjsua_acc_del(acct_id &_call_id);
+    }
+     
     if (status != PJ_SUCCESS) {
         NSString *errorMessage = [NSString stringWithFormat:@"退出登录失败，返回错误号：%d!", status];
         NSLog(@"register error: %@", errorMessage);
@@ -305,7 +522,7 @@ static dispatch_once_t onceToken;
     }
     NSDictionary * dict = @{@"call_state":stateText,
                             @"remote_uri":address,
-                            };
+    };
     [tmp.methodChannel invokeMethod:method_call_status_changed arguments:dict];
     
     
@@ -336,8 +553,8 @@ static dispatch_once_t onceToken;
 //                    self.connecting = !self.connecting;
 //                    type = CallStatusTypeConnecting;
 //                }
-//                
-//                
+//
+//
 //            }
 //                break;
 //            case 6:
@@ -349,8 +566,8 @@ static dispatch_once_t onceToken;
 //                }
 //            }
 //                break;
-//                
-//                
+//
+//
 //            default:
 //            {
 //                type = CallStatusTypeUnknown;
@@ -374,11 +591,11 @@ static void on_incoming_call(pjsua_acc_id acc_id, pjsua_call_id call_id, pjsip_r
     remote_address = [remote_info componentsSeparatedByString:@":"][1];
     //来电监听
     id argument = @{
-                    @"call_id":@(call_id),
-                    @"state":@(ci.state),
-                    @"pjsipConfAudioId":@(ci.conf_slot),
-                    @"remote_address":remote_address,
-                    };
+        @"call_id":@(call_id),
+        @"state":@(ci.state),
+        @"pjsipConfAudioId":@(ci.conf_slot),
+        @"remote_address":remote_address,
+    };
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPIncomingCallNotification" object:nil userInfo:argument];
     });
@@ -392,14 +609,14 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
     NSString *remote_state = [NSString stringWithUTF8String:ci.state_text.ptr];
     NSString *remote_info = [NSString stringWithUTF8String:ci.remote_info.ptr];
     NSString * string1 = [remote_info componentsSeparatedByString:@"@"].firstObject;
-   NSString * remote_address = [string1 componentsSeparatedByString:@":"].lastObject;
+    NSString * remote_address = [string1 componentsSeparatedByString:@":"].lastObject;
     id argument = @{
-                    @"call_id":@(call_id),
-                    @"state":@(ci.state),
-                    @"stateText":remote_state,
-                    @"pjsipConfAudioId":@(ci.conf_slot),
-                    @"remote_address":remote_address
-                    };
+        @"call_id":@(call_id),
+        @"state":@(ci.state),
+        @"stateText":remote_state,
+        @"pjsipConfAudioId":@(ci.conf_slot),
+        @"remote_address":remote_address
+    };
     
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPCallStatusChangedNotification" object:nil userInfo:argument];
@@ -437,10 +654,10 @@ static void on_reg_state(pjsua_acc_id acc_id) {
     }
     
     id argument = @{
-                    @"acc_id":@(acc_id),
-                    @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
-                    @"status":@(info.status)
-                    };
+        @"acc_id":@(acc_id),
+        @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
+        @"status":@(info.status)
+    };
     dispatch_async(dispatch_get_main_queue(), ^{
         //注册结果通知
         [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
@@ -454,9 +671,10 @@ static void on_reg_state(pjsua_acc_id acc_id) {
 //来电拒绝&&挂断
 - (void)hangup {
     
-    pj_status_t status;
+    pj_status_t status = 0;
     self.isHangup = !self.isHangup;
-    status = pjsua_call_hangup(_call_id, 0, NULL, NULL);
+//    status = pjsua_call_hangup(_call_id, 0, NULL, NULL);
+    pjsua_call_hangup_all();
     //    pjsua_acc_id acct_id = (pjsua_acc_id)[[NSUserDefaults standardUserDefaults] integerForKey:@"login_account_id"];
     //
     //    pjsua_acc_del(acct_id);
@@ -473,10 +691,10 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         if(pjsipConfAudioId != 0) {
             NSLog(@"WC_SIPServer microphone disconnected from call");
             if (tmp.isMute) {
-                 pjsua_conf_connect(0,pjsipConfAudioId);
+                pjsua_conf_connect(0,pjsipConfAudioId);
                 tmp.isMute = NO;
             }else{
-            pjsua_conf_disconnect(0, pjsipConfAudioId);
+                pjsua_conf_disconnect(0, pjsipConfAudioId);
                 tmp.isMute = YES;
             }
         }
