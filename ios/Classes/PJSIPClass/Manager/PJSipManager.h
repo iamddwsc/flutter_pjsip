@@ -41,7 +41,7 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 + (instancetype) manager;
 + (instancetype) shared;
 //销毁单例
-+(void)attempDealloc;
++ (void)attempDealloc;
 //登录
 - (BOOL)registerAccountWithName:(NSString *)name password:(NSString *)password IPAddress:(NSString *)ipaddress;
 // Personal use
@@ -52,10 +52,12 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (void)dailWithPhonenumber:(NSString *)phonenumber;
 
 @property(nonatomic,strong) FlutterMethodChannel* methodChannel;
+@property (nonatomic, assign) int currentCallId;
+@property (nonatomic, assign) int stateEarlyTriggerTime;
 
 /**
  拨打电话
-
+ 
  @param delelgate 代理
  @param phonenumber 对方电话号码
  @param name 分机号 e.g. 9123
@@ -71,17 +73,23 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (void)inComingHangup;
 
 //来电接听
--(void)incommingCallReceive;
+- (void)incommingCallReceive;
 //来电拒绝
--(void)icncommingCallRefuse;
+- (void)icncommingCallRefuse;
 // 静音
 - (void)muteMicrophone;
+- (BOOL)muteMicrophone2:(BOOL)mute /*isButtonClicked:(BOOL)isButtonClicked*/;
 
 // 取消静音
 - (void)unmuteMicrophone;
 //退出登录
--(BOOL)logOut;
+- (BOOL)logOut;
 //免提
--(void)setAudioSession;
+- (void)setAudioSession;
+
+// additional function for my usecase
+- (int)countAllCalls;
+- (void)terminateAllCalls;
+- (void)deleteSIPAccountDefaultIfExists;
 
 @end

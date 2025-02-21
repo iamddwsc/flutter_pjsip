@@ -42,7 +42,12 @@ class FlutterPjsip {
       case 'method_call_state_changed':
         pjsip._sipStateController.add(callArgs);
         break;
-
+      case 'method_call_register_another_account':
+        pjsip._sipStateController.add(callArgs);
+        break;
+      case 'method_call_register_successful':
+        pjsip._sipStateController.add(callArgs);
+        break;
       default:
         print('Unknown method ${call.method} ');
     }
@@ -117,6 +122,14 @@ class FlutterPjsip {
   ///pjsip静音
   Future<bool> pjsipMute() async {
     return await _channel.invokeMethod('method_pjsip_mute');
+  }
+
+  Future<bool> pjsipMute2(bool mute) async {
+    return await _channel.invokeMethod('method_pjsip_mute2', {"mute": mute});
+  }
+
+  Future<void> terminateAllCalls() async {
+    await _channel.invokeMethod('method_pjsip_terminate_all_calls');
   }
 
   ///关闭全部StreamController

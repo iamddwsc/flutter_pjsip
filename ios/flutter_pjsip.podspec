@@ -15,7 +15,7 @@ A new Flutter plugin.
   s.source_files = 'Classes/**/*.h', 'Classes/**/*.m'
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
-  s.resources = ['Classes/PJSIPClass/Assets/*.png','Classes/PJSIPClass/Assets/*.wav']
+  s.resources = ['Classes/PJSIPClass/Assets/*.png','Classes/PJSIPClass/Assets/*.wav', 'Classes/PJSIPClass/Assets/*.mp3']
   # s.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64' }
   s.dependency 'pjsip'
   s.dependency 'Masonry','~> 0.6.3'

@@ -19,7 +19,10 @@
 #import <CommonUtil.h>
 
 //原生传给flutter
+// Method to call to flutter
 #define method_call_status_changed  @"method_call_state_changed"
+#define method_call_register_another_account  @"method_call_register_another_account"
+#define method_call_register_successful  @"method_call_register_successful"
 
 // 来电冲突：CoreTelephony框架监听
 
@@ -48,8 +51,10 @@ static void on_reg_state(pjsua_acc_id acc_id);
 @implementation PJSipManager
 static PJSipManager * tmp = nil;
 static dispatch_once_t onceToken;
-int retryTime = 2;
+//int stateEarlyTriggerTime = 0;
+//int current_call_id = -1;
 
+// manager is conflict with my app delegate so I created shared to use (same as manager)
 + (instancetype) shared {
     dispatch_once(&onceToken, ^{
         tmp = [[PJSipManager alloc] init];
@@ -59,7 +64,6 @@ int retryTime = 2;
     });
     return tmp;
 }
-
 
 + (instancetype) manager {
     dispatch_once(&onceToken, ^{
@@ -77,6 +81,7 @@ int retryTime = 2;
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"server_uri"];
     onceToken = 0; // 只有置成0,GCD才会认为它从未执行过.它默认为0.这样才能保证下次再次调用shareInstance的时候,再次创建对象.
     tmp = nil;
+    pjsua_destroy();
 }
 
 
@@ -391,8 +396,8 @@ int retryTime = 2;
     pjsip_generic_string_hdr_init2(&CustomHeader, &uaName, &value);
     pj_list_push_back(&cfg.reg_hdr_list, &CustomHeader);
     
-    pjsip_endpoint* endpoint = pjsua_get_pjsip_endpt();
-    pj_dns_resolver* resolver;
+//    pjsip_endpoint* endpoint = pjsua_get_pjsip_endpt();
+//    pj_dns_resolver* resolver;
     
     // 指定传入的视频是否自动显示在屏幕上
     //        cfg.vid_in_auto_show = PJ_TRUE;
@@ -447,6 +452,13 @@ int retryTime = 2;
     }
     if (status == PJSIP_SC_OK) {
         NSLog(@"登录成功，登录信息：%d（%@）", status, statusText);
+        // we will notify flutter with method channel instead of
+        // use return boolean in login function
+        // because if login failed, we shouldn't do anything futhur or it can lead to app crash
+        NSDictionary * dict = @{@"call_state":@"REGISTER_SUCCESS",
+                                @"remote_uri":@"",
+        };
+        [tmp.methodChannel invokeMethod:method_call_register_successful arguments:dict];
     }
     
     [[NSUserDefaults standardUserDefaults] setInteger:acc_id forKey:@"login_account_id"];
@@ -477,7 +489,7 @@ int retryTime = 2;
     pj_str_t dest_uri = pj_str((char *)targetUri.UTF8String);
     
     status = pjsua_call_make_call(acct_id, &dest_uri, 0, NULL, NULL, &_call_id);
-    [[AVSound sharedInstance] playWithString:@"ring_back" type:@"wav" loop:YES];
+    [[AVSound sharedInstance] playWithString:@"ring_back" type:@"mp3" loop:YES];
     [[AVSound sharedInstance] play];
     
     if (status != PJ_SUCCESS) {
@@ -510,6 +522,16 @@ int retryTime = 2;
     NSLog(@"\n通话状态回调通话状态回调通话状态回调通话状态回调通话状态回调----%d---%@",state,stateText);
     if (state == PJSIP_INV_STATE_CONFIRMED||state == PJSIP_INV_STATE_DISCONNECTED) {
         [[AVSound sharedInstance] stop];
+        tmp.stateEarlyTriggerTime = 0;
+        if (state == PJSIP_INV_STATE_DISCONNECTED) {
+            tmp.currentCallId = -1;
+        }
+    } else if (state == PJSIP_INV_STATE_EARLY) {
+        if (tmp.stateEarlyTriggerTime < 1) {
+            tmp.stateEarlyTriggerTime++;
+        } else {
+            [[AVSound sharedInstance] stop];
+        }
     }
     if (state == PJSIP_INV_STATE_CONNECTING) {
         if (!_connecting) {
@@ -606,6 +628,7 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
     pjsua_call_info ci;
     pjsua_call_get_info(call_id, &ci);
     PJ_UNUSED_ARG(e);
+    tmp.currentCallId = call_id;
     NSString *remote_state = [NSString stringWithUTF8String:ci.state_text.ptr];
     NSString *remote_info = [NSString stringWithUTF8String:ci.remote_info.ptr];
     NSString * string1 = [remote_info componentsSeparatedByString:@"@"].firstObject;
@@ -617,6 +640,7 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
         @"pjsipConfAudioId":@(ci.conf_slot),
         @"remote_address":remote_address
     };
+//    NSLog(@"======%@", argument);
     
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPCallStatusChangedNotification" object:nil userInfo:argument];
@@ -644,6 +668,36 @@ static void on_call_media_state(pjsua_call_id call_id) {
     }
 }
 
+//static void on_reg_state(pjsua_acc_id acc_id) {
+//    pj_status_t status;
+//    pjsua_acc_info info;
+//    
+//    status = pjsua_acc_get_info(acc_id, &info);
+//    if (status != PJ_SUCCESS) {
+//        return;
+//    }
+//    
+//    dispatch_async(dispatch_get_main_queue(), ^{
+//        // if register success, flush data to notification center
+//        if (info.status == PJSIP_SC_OK) {
+//            id argument = @{
+//                @"acc_id":@(acc_id),
+//                @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
+//                @"status":@(info.status)
+//            };
+//            dispatch_async(dispatch_get_main_queue(), ^{
+//                //注册结果通知
+//                [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
+//            });
+//        } else {
+//            // if register fail, remove the old and register new number if have
+//            [PJSipManager.shared deleteSIPAccountDefaultIfExists];
+//            [PJSipManager.shared performSelector:@selector(requestToRegisterNewSIPAccount)
+//                      withObject:nil afterDelay:1.0];
+//        }
+//    });
+//    PJ_UNUSED_ARG(acc_id);
+//}
 static void on_reg_state(pjsua_acc_id acc_id) {
     pj_status_t status;
     pjsua_acc_info info;
@@ -658,6 +712,8 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
         @"status":@(info.status)
     };
+    NSLog(@"%@", argument);
+    
     dispatch_async(dispatch_get_main_queue(), ^{
         //注册结果通知
         [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
@@ -673,6 +729,7 @@ static void on_reg_state(pjsua_acc_id acc_id) {
     
     pj_status_t status = 0;
     self.isHangup = !self.isHangup;
+    tmp.stateEarlyTriggerTime = 0;
 //    status = pjsua_call_hangup(_call_id, 0, NULL, NULL);
     pjsua_call_hangup_all();
     //    pjsua_acc_id acct_id = (pjsua_acc_id)[[NSUserDefaults standardUserDefaults] integerForKey:@"login_account_id"];
@@ -743,4 +800,95 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         }
     };
 }
+- (int)countAllCalls {
+    return pjsua_call_get_count();
+}
+
+- (void)terminateAllCalls {
+    pjsua_call_hangup_all();
+    [PJSipManager.shared deleteSIPAccountDefaultIfExists];
+}
+
+- (void)deleteSIPAccountDefaultIfExists {
+    int numAccount = pjsua_acc_get_count();
+    if (numAccount > 0) {
+        pjsua_acc_id accId = pjsua_acc_get_default();
+        if (pjsua_acc_is_valid(accId)) {
+            pj_status_t status = pjsua_acc_del(accId);
+            if (status == PJ_SUCCESS) {
+                NSLog(@"pjsip ===== DELETED SIP ACCOUNT %d", accId);
+            }
+        }
+    }
+}
+
+// Use this function to register another sip account
+// if use natively, we can store SIP accounts somewhere and retreive
+// but with Flutter, we will use method channel to let Flutter know
+// we need to register another SIP account.
+// So in flutter, listen this event from pjsip.onSipStateChanged
+- (void)requestToRegisterNewSIPAccount {
+    NSDictionary * dict = @{@"call_state":@"REGISTER_ANOTHER_ACCOUNT",
+                            @"remote_uri":@"",
+    };
+    [tmp.methodChannel invokeMethod:method_call_register_another_account arguments:dict];
+}
+
+- (BOOL)checkMicrophoneWasMuted {
+    if (pjsipConfAudioId >= 0) {
+        unsigned int tx_level;
+        unsigned int rx_level;
+        pjsua_conf_get_signal_level(pjsipConfAudioId, &tx_level, &rx_level);
+        return (tx_level == 0) ? true : false;
+    }
+    return false;
+}
+
+// return value is for change success or fail
+// so we need to compare with local value in flutter to handle muted/unmuted
+// for example if you call this function with FALSE and it return true -> muted
+// if you call this function with FALSE and it return false -> action failed, don't change UI
+- (BOOL)muteMicrophone2:(BOOL)mute {
+    BOOL connected = [self isCallWasConnected];
+    if (connected) {
+        BOOL isMuted = mute ? YES : NO;  // Use the provided mute value directly
+        @try {
+            if (pjsipConfAudioId != 0) {
+                if (isMuted) {
+                    NSLog(@"WC_SIPServer microphone disconnected from call");
+                    pj_status_t status = pjsua_conf_disconnect(0, pjsipConfAudioId);
+                    if (status != PJ_SUCCESS) {
+                        return NO; // Action failed
+                    }
+                } else {
+                    NSLog(@"WC_SIPServer microphone reconnected to call");
+                    pj_status_t status = pjsua_conf_connect(0, pjsipConfAudioId);
+                    if (status != PJ_SUCCESS) {
+                        return NO; // Action failed
+                    }
+                }
+                return YES; // Action success
+            }
+            return NO; // No valid audio ID
+        }
+        @catch (NSException *exception) {
+            return NO; // Handle exception case
+        }
+    }
+    return NO; // Call is not connected
+}
+
+
+- (BOOL)isCallWasConnected {
+    if (tmp.currentCallId != -1) {
+        pjsua_call_info ci;
+        pjsua_call_get_info(tmp.currentCallId, &ci);
+        
+        if (ci.state == PJSIP_INV_STATE_CONFIRMED) {
+            return true;
+        }
+    }
+    return false;
+}
+
 @end

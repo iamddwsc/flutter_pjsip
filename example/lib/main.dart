@@ -25,7 +25,7 @@ class _MyAppState extends State<MyApp> {
     _pjsip = FlutterPjsip.instance;
     _pjsip.onSipStateChanged.listen((map) {
       final state = map['call_state'];
-      final remoteUri = map['remote_uri'];
+      // final remoteUri = map['remote_uri'];
       print('收到状态: $state');
       switch (state) {
         case "CALLING":
