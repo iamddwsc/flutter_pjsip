@@ -11,9 +11,15 @@ import org.pjsip.pjsua2.CallOpParam;
 import org.pjsip.pjsua2.Endpoint;
 import org.pjsip.pjsua2.EpConfig;
 import org.pjsip.pjsua2.IpChangeParam;
+import org.pjsip.pjsua2.SipHeader;
+import org.pjsip.pjsua2.SipHeaderVector;
 import org.pjsip.pjsua2.TransportConfig;
 import org.pjsip.pjsua2.UaConfig;
 import org.pjsip.pjsua2.pjsip_transport_type_e;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Description: PjSip管理类
@@ -237,6 +243,110 @@ public class PjSipManager
       mAccount = null;
     }
   }
+
+  public boolean loginWithInfo(Map<String, Object> info) {
+    SipHeaderVector sipHeaders = new SipHeaderVector();
+    SipHeader sipHeader = new SipHeader();
+    sipHeader.setHName("Call-ID");
+//        Random random = new Random();
+    sipHeader.setHValue(UUID.randomUUID().toString());
+    AccountConfig accCfg = new AccountConfig();
+
+
+//        accCfg.setIdUri("sip:nhcla152@103.57.210.247:51000");
+    accCfg.getNatConfig().setIceEnabled(false);
+
+    accCfg.getVideoConfig().setAutoTransmitOutgoing(false);
+    accCfg.getVideoConfig().setAutoShowIncoming(true);
+
+    String sipURI = "sip:";
+    String addTransport = "";
+    String port = "";
+    int serverPort = (int) info.get("serverPort");
+    if ((int) info.get("serverPort") > 0)
+      port = ":" + info.serverPort;
+//        int switch_port = 51000;
+    if (!TextUtils.isEmpty(info.serverType))
+      addTransport = ";transport=" + info.serverType.toLowerCase();
+    String sipid = sipURI + info.phoneLine + "@" + info.serverUrl /*+ ":" + switch_port*/;
+    String registrarstr = sipURI + info.serverUrl + port + addTransport;
+
+
+    accCfg.getNatConfig().setContactRewriteUse(0);
+    accCfg.getNatConfig().setContactRewriteMethod(0);
+    accCfg.getNatConfig().setContactUseSrcPort(0);
+    accCfg.getNatConfig().setViaRewriteUse(0);
+    accCfg.getNatConfig().setSipStunUse(PJSUA_STUN_USE_DISABLED);
+    accCfg.getMediaConfig().setIpv6Use(PJSUA_IPV6_DISABLED);
+
+    accCfg.setIdUri(sipid);
+
+    sipHeaders.add(sipHeader);
+    accCfg.getRegConfig().setHeaders(sipHeaders);
+    accCfg.getRegConfig().setRegistrarUri(registrarstr);
+    accCfg.getPresConfig().setHeaders(sipHeaders);
+    AuthCredInfoVector creds = accCfg.getSipConfig().getAuthCreds();
+
+    creds.clear();
+
+    creds.add(new AuthCredInfo("Digest", "*", info.phoneLine, PJSIP_CRED_DATA_PLAIN_PASSWD.swigValue(), info.phoneLinePassword));
+    StringVector proxies = accCfg.getSipConfig().getProxies();
+    proxies.clear();
+    if (!TextUtils.isEmpty(info.outboundProxy)) {
+      String proxystr = sipURI + info.outboundProxy /*+ ":" + port + addTransport*/;
+      proxies.add(proxystr);
+    }
+    accCfg.getSipConfig().setProxies(proxies);
+    /* Enable ICE */
+//        accCfg.getNatConfig().setIceEnabled(false);
+    if (account != null) {
+      account.delete();
+      account = null;
+    }
+    account = new MyAccount(accCfg, info.serverId, info.phoneLine);
+
+    try {
+      account.create(accCfg);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+
+    if (account == null) {
+      throw new RuntimeException("Lỗi login");
+    }
+
+    long startTime = System.currentTimeMillis();
+    boolean isRegistered = false;
+    do {
+//                    AccountInfo accountInfo = null;
+      Lifecycle.State state = getLifecycle().getCurrentState();
+      if (state.equals(Lifecycle.State.DESTROYED)) {
+        return false;
+      }
+      try {
+//                        accountInfo = account.getInfo();
+        pjsip_status_code code = account.last_status_code;//accountInfo.getRegStatus();
+        if (code.swigValue() / 100 == 2) {
+          //online
+          return true;
+        } else if (code == pjsip_status_code.PJSIP_SC_PROGRESS) {
+          //connecting...
+        } else {
+          //offline
+          return false;
+        }
+        Log.d(this, "RegisterCode: " + code);
+//                        isRegistered = code == pjsip_status_code.PJSIP_SC_OK;//accountInfo != null && accountInfo.getRegStatus() == pjsip_status_code.PJSIP_SC_OK;
+      } catch (Throwable ex) {
+        ex.printStackTrace();
+      }
+
+      if (!isRegistered) SystemClock.sleep(500);
+    } while (!isRegistered && System.currentTimeMillis() - startTime < 30000);
+    return isRegistered;
+  }
+//    return false;
+//  }
 
   public MyCall call(String username, String ip, String port)
   {

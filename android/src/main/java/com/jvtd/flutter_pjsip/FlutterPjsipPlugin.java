@@ -17,11 +17,13 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.Vibrator;
-import android.support.annotation.NonNull;
+//import android.support.annotation.NonNull;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
+
+import androidx.annotation.NonNull;
 
 import com.jvtd.flutter_pjsip.entity.MSG_TYPE;
 import com.jvtd.flutter_pjsip.entity.MyBuddy;
@@ -37,6 +39,9 @@ import org.pjsip.pjsua2.pjsip_status_code;
 import java.util.HashMap;
 import java.util.Map;
 
+import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
@@ -46,7 +51,7 @@ import io.flutter.plugin.common.PluginRegistry.Registrar;
 /**
  * FlutterPjsipPlugin
  */
-public class FlutterPjsipPlugin implements MethodCallHandler
+public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodCallHandler
 {
   private static final String TAG = "FlutterPjsipPlugin";
 
@@ -60,6 +65,10 @@ public class FlutterPjsipPlugin implements MethodCallHandler
   private static final String METHOD_PJSIP_REFUSE = "method_pjsip_refuse";
   private static final String METHOD_PJSIP_HANDS_FREE = "method_pjsip_hands_free";
   private static final String METHOD_PJSIP_MUTE = "method_pjsip_mute";
+
+  private static final String METHOD_PJSIP_LOGIN_WITH_INFO = "method_pjsip_login_with_info";
+  private static final String METHOD_PJSIP_TERMINATE_ALL_CALLS = "method_pjsip_terminate_all_calls";
+  private static final String METHOD_PJSIP_MUTE2 = "method_pjsip_mute2";
 
   private static final String METHOD_CALL_STATUS_CHANGED = "method_call_state_changed";
 
@@ -295,23 +304,63 @@ public class FlutterPjsipPlugin implements MethodCallHandler
   });
 
 
-  private FlutterPjsipPlugin(final MethodChannel channel, Activity activity)
-  {
-    this.mChannel = channel;
-    this.mChannel.setMethodCallHandler(this);
-    this.mActivity = activity;
-
-    registerAudioManager();
-  }
+//  private FlutterPjsipPlugin(final MethodChannel channel, Activity activity)
+//  {
+//    this.mChannel = channel;
+//    this.mChannel.setMethodCallHandler(this);
+//    this.mActivity = activity;
+//
+//    registerAudioManager();
+//  }
 
   /**
    * Plugin registration.
    */
-  public static void registerWith(Registrar registrar)
-  {
-    final MethodChannel channel = new MethodChannel(registrar.messenger(), CHANNEL);
-    //setMethodCallHandler在此通道上接收方法调用的回调
-    channel.setMethodCallHandler(new FlutterPjsipPlugin(channel, registrar.activity()));
+//  public static void registerWith(Registrar registrar)
+//  {
+//    final MethodChannel channel = new MethodChannel(registrar.messenger(), CHANNEL);
+//    //setMethodCallHandler在此通道上接收方法调用的回调
+//    channel.setMethodCallHandler(new FlutterPjsipPlugin(channel, registrar.activity()));
+//  }
+
+  @Override
+  public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+      // Handle method calls (onMethodCall())
+    this.mChannel = new MethodChannel(binding.getBinaryMessenger(), CHANNEL);
+    this.mChannel.setMethodCallHandler(this);
+  }
+
+  @Override
+  public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+    if (mChannel != null)
+    {
+      mChannel.setMethodCallHandler(null);
+      mChannel = null;
+    }
+  }
+
+  /**
+   * Plugin's activity registration.
+   */
+  @Override
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    mActivity = binding.getActivity();
+    registerAudioManager();
+  }
+
+  @Override
+  public void onDetachedFromActivityForConfigChanges() {
+
+  }
+
+  @Override
+  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+
+  }
+
+  @Override
+  public void onDetachedFromActivity() {
+
   }
 
   @Override
@@ -382,6 +431,12 @@ public class FlutterPjsipPlugin implements MethodCallHandler
         pjsipMute();
         break;
 
+        // Additional case for my app, you can adjust what ever you want
+      case METHOD_PJSIP_LOGIN_WITH_INFO:
+        Map<String, Object> data = call.arguments();
+        pjsipLoginWithInfo(data);
+        break;
+
       default:
         result.notImplemented();
         break;
@@ -421,6 +476,17 @@ public class FlutterPjsipPlugin implements MethodCallHandler
    */
   private void pjsipLogin(String username, String password, String ip, String port)
   {
+    if (mPjSipManagerState.getCode() == PjSipManagerState.STATE_INITED.getCode())
+      mPjSipManager.login(username, password, ip, port);
+    else
+      mResult.success(false);
+  }
+
+  /** PjSip login with info (map)
+   * @author ddwsc
+   * create at 2025/02/23 17:08
+   */
+  private void pjsipLoginWithInfo(Map<String, Object> info) {
     if (mPjSipManagerState.getCode() == PjSipManagerState.STATE_INITED.getCode())
       mPjSipManager.login(username, password, ip, port);
     else
