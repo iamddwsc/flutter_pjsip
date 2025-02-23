@@ -22,6 +22,7 @@ rootProject.allprojects {
 apply plugin: 'com.android.library'
 
 android {
+    namespace 'com.jvtd.flutter_pjsip'
     compileSdkVersion 28
 
     defaultConfig {
