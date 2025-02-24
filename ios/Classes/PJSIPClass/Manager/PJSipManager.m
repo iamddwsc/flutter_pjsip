@@ -86,7 +86,8 @@ static dispatch_once_t onceToken;
 
 
 - (BOOL)create {
-    
+    [tmp resetAudioSesssion];
+    [tmp configAudioSession:[AVAudioSession sharedInstance]];
     static NSInteger i = 1;
     tmp.isMute = NO;
     //    NSLog(@"我执行了%ld次",i++);
@@ -525,6 +526,10 @@ static dispatch_once_t onceToken;
         tmp.stateEarlyTriggerTime = 0;
         if (state == PJSIP_INV_STATE_DISCONNECTED) {
             tmp.currentCallId = -1;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [PJSipManager.shared resetAudioSesssion];
+                [PJSipManager.shared enableSpeakerForCall:false];
+            });
         }
     } else if (state == PJSIP_INV_STATE_EARLY) {
         if (tmp.stateEarlyTriggerTime < 1) {
@@ -782,6 +787,24 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     }
 }
+- (void)resetAudioSesssion {
+    UInt32 sessionCategory = kAudioSessionCategory_PlayAndRecord;
+    AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);
+    UInt32 audioRouteOverride = kAudioSessionOverrideAudioRoute_Speaker;
+    AudioSessionSetProperty (kAudioSessionProperty_OverrideAudioRoute,sizeof (audioRouteOverride),&audioRouteOverride);
+}
+
+- (void)configAudioSession:(AVAudioSession *)audioSession {
+    [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
+                  withOptions:AVAudioSessionCategoryOptionAllowBluetooth
+                        error:nil];
+    [audioSession setMode:AVAudioSessionModeVoiceChat error:nil];
+    double sampleRate = 16000.0;
+    [audioSession setPreferredSampleRate:sampleRate error:nil];
+    
+    NSTimeInterval bufferDuration = .005;
+    [audioSession setPreferredIOBufferDuration:bufferDuration error: nil];
+}
 #pragma mark--系统电话回调
 -(void)callCenterBlock{
     _callCenter = [[CTCallCenter alloc] init];
@@ -889,6 +912,49 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         }
     }
     return false;
+}
+
+- (BOOL)enableSpeakerForCall: (BOOL)speaker {
+    BOOL success;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSError *error = nil;
+    
+    if (speaker) {
+        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                           withOptions:AVAudioSessionCategoryOptionMixWithOthers
+                                 error:&error];
+        if (!success){
+            return false;
+        }
+        
+        success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&error];
+        if (!success){
+            return false;
+        }
+        
+        success = [session setActive:YES error:&error];
+        if (!success){
+            return false;
+        }
+    }else{
+        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                           withOptions:AVAudioSessionCategoryOptionMixWithOthers
+                                 error:&error];
+        if (!success){
+            return false;
+        }
+        
+        success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:&error];
+        if (!success){
+            return false;
+        }
+        
+        success = [session setActive:YES error:&error];
+        if (!success){
+            return false;
+        }
+    }
+    return success;
 }
 
 @end

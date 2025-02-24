@@ -91,5 +91,5 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (int)countAllCalls;
 - (void)terminateAllCalls;
 - (void)deleteSIPAccountDefaultIfExists;
-
+- (BOOL) enableSpeakerForCall:(BOOL)speaker;
 @end
