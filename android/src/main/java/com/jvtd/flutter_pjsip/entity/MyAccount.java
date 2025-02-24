@@ -8,6 +8,7 @@ import org.pjsip.pjsua2.BuddyConfig;
 import org.pjsip.pjsua2.OnIncomingCallParam;
 import org.pjsip.pjsua2.OnInstantMessageParam;
 import org.pjsip.pjsua2.OnRegStateParam;
+import org.pjsip.pjsua2.pjsip_status_code;
 
 import java.util.ArrayList;
 
@@ -21,10 +22,17 @@ public class MyAccount extends Account
   public ArrayList<MyBuddy> buddyList = new ArrayList<MyBuddy>();
   public AccountConfig cfg;
 
-  public MyAccount(AccountConfig config)
+  public int server_id;
+  public String userName;
+
+  public pjsip_status_code last_status_code = null;
+
+  public MyAccount(AccountConfig config, int server_id, String userName)
   {
     super();
     cfg = config;
+    this.server_id = server_id;
+    this.userName = userName;
   }
 
   public MyBuddy addBuddy(BuddyConfig bud_cfg)

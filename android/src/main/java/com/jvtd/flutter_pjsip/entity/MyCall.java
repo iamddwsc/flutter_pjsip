@@ -1,5 +1,7 @@
 package com.jvtd.flutter_pjsip.entity;
 
+import android.util.Log;
+
 import com.jvtd.flutter_pjsip.PjSipManager;
 
 import org.pjsip.pjsua2.AudioMedia;
@@ -12,6 +14,7 @@ import org.pjsip.pjsua2.OnCallMediaStateParam;
 import org.pjsip.pjsua2.OnCallStateParam;
 import org.pjsip.pjsua2.pjmedia_type;
 import org.pjsip.pjsua2.pjsip_inv_state;
+import org.pjsip.pjsua2.pjsip_status_code;
 import org.pjsip.pjsua2.pjsua_call_media_status;
 
 /**
@@ -40,9 +43,13 @@ public class MyCall extends Call
     try
     {
       CallInfo ci = getInfo();
+      Log.d("MyCall - onCallState", "CallID:" + getId() + " - status code: " + pjsip_status_code.swigToEnum(ci.getLastStatusCode().swigValue()));
       if (ci.getState() == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED)
       {
         PjSipManager.mEndPoint.utilLogWrite(3, "MyCall", this.dump(true, ""));
+      } else if (ci.getState() == pjsip_inv_state.PJSIP_INV_STATE_EARLY) {
+        pjsip_status_code statusCode = ci.getLastStatusCode();
+        Log.d("MyCall - onCallState", "statusCode:" + statusCode);
       }
     } catch (Exception e)
     {

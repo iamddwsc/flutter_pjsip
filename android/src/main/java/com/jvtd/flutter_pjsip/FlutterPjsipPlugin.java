@@ -34,6 +34,7 @@ import com.jvtd.flutter_pjsip.utils.SoundPoolUtil;
 import org.pjsip.pjsua2.CallInfo;
 import org.pjsip.pjsua2.CallOpParam;
 import org.pjsip.pjsua2.pjsip_inv_state;
+import org.pjsip.pjsua2.pjsip_role_e;
 import org.pjsip.pjsua2.pjsip_status_code;
 
 import java.util.HashMap;
@@ -46,7 +47,6 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 /**
  * FlutterPjsipPlugin
@@ -71,6 +71,8 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
   private static final String METHOD_PJSIP_MUTE2 = "method_pjsip_mute2";
 
   private static final String METHOD_CALL_STATUS_CHANGED = "method_call_state_changed";
+  private static final String METHOD_CALL_REGISTER_ANOTHER_ACCOUNT = "method_call_register_another_account";
+  private static final String METHOD_CALL_REGISTER_SUCCESSFUL = "method_call_register_successful";
 
 
   private MethodChannel mChannel;
@@ -85,8 +87,8 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
   private AudioManager mAudioManager;
   private SoundPoolUtil mSoundPoolUtil;
   private int mSoundWaitId;
-  private TelephonyManager mTelephonyManager;
-  private SystemPhoneStateListener mSystemPhoneStateListener;
+//  private TelephonyManager mTelephonyManager;
+//  private SystemPhoneStateListener mSystemPhoneStateListener;
   private PowerManager.WakeLock mWakeLock;
   private SensorManager mSensorManager;
   private Vibrator mVibrator;
@@ -99,7 +101,7 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
     @Override
     public void notifyRegState(final pjsip_status_code code, String reason, final int expiration)
     {
-      if (TextUtils.equals(mMethod, METHOD_PJSIP_LOGIN))
+      if (TextUtils.equals(mMethod, METHOD_PJSIP_LOGIN) || TextUtils.equals(mMethod, METHOD_PJSIP_LOGIN_WITH_INFO))
       {
 //        String msg_str = "";
 //        if (expiration == 0)// 注销
@@ -174,7 +176,37 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
       {
         case MSG_TYPE.REG_STATE:
           boolean loginResult = (boolean) msg.obj;
-          mPjSipManagerState = PjSipManagerState.STATE_LOGINED;
+          // if register successful, notify success via method channel
+          if (loginResult) {
+            mPjSipManagerState = PjSipManagerState.STATE_LOGINED;
+            if (mChannel != null)
+            {
+              Log.i(TAG, "FlutterPjsipPlugin" + "REGISTER_SUCCESS");
+              mChannel.invokeMethod(METHOD_CALL_REGISTER_SUCCESSFUL, buildArguments("REGISTER_SUCCESS", ""));
+              if (mSoundPoolUtil == null) {
+                mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
+                {
+                  @Override
+                  public void onLoadComplete(SoundPool soundPool, int sampleId, int status)
+                  {
+                    if (mSoundPoolUtil != null)
+                      mSoundPoolUtil.play(mSoundWaitId);
+                  }
+                });
+                int rawId = R.raw.ring_back_sound;
+                mSoundWaitId = mSoundPoolUtil.load(rawId);
+              }
+            }
+          } else {
+            // if register failed, notify register another account via method channel
+            // you can do next process on this state
+            // ex: register new account or notify user and close the call view
+            if (mChannel != null)
+            {
+              Log.i(TAG, "FlutterPjsipPlugin" + "register failed, notify REGISTER_ANOTHER_ACCOUNT state to flutter");
+              mChannel.invokeMethod(METHOD_CALL_REGISTER_ANOTHER_ACCOUNT, buildArguments("REGISTER_ANOTHER_ACCOUNT", ""));
+            }
+          }
           mResult.success(loginResult);
           break;
 
@@ -185,23 +217,45 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
             System.out.println("Call state event received, but call info is invalid");
             return true;
           }
-
           pjsip_inv_state state = callInfo.getState();
           if (state == pjsip_inv_state.PJSIP_INV_STATE_CALLING)
           {
-            mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
-            {
-              @Override
-              public void onLoadComplete(SoundPool soundPool, int sampleId, int status)
+            if (mSoundPoolUtil == null) {
+              mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
               {
-                if (mSoundPoolUtil != null)
-                  mSoundPoolUtil.play(mSoundWaitId);
-              }
-            });
-            int rawId = R.raw.ring_back;
-            mSoundWaitId = mSoundPoolUtil.load(rawId);
+                @Override
+                public void onLoadComplete(SoundPool soundPool, int sampleId, int status)
+                {
+                  if (mSoundPoolUtil != null)
+                    mSoundPoolUtil.play(mSoundWaitId);
+                }
+              });
+              int rawId = R.raw.ring_back_sound;
+              mSoundWaitId = mSoundPoolUtil.load(rawId);
+            }
 
             mPjSipManagerState = PjSipManagerState.STATE_CALLING;
+
+          } else if (state == pjsip_inv_state.PJSIP_INV_STATE_EARLY) {
+            pjsip_status_code statusCode = callInfo.getLastStatusCode();
+            if (statusCode == pjsip_status_code.PJSIP_SC_RINGING && callInfo.getRole() == pjsip_role_e.PJSIP_ROLE_UAC) {
+              // check and play ringing sound
+              if (mSoundPoolUtil == null) {
+                mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
+                {
+                  @Override
+                  public void onLoadComplete(SoundPool soundPool, int sampleId, int status)
+                  {
+                    if (mSoundPoolUtil != null)
+                      mSoundPoolUtil.play(mSoundWaitId);
+                  }
+                });
+                int rawId = R.raw.ring_back_sound;
+                mSoundWaitId = mSoundPoolUtil.load(rawId);
+              }
+            } else if (statusCode == pjsip_status_code.PJSIP_SC_PROGRESS) {
+              stopRingBackSound();
+            }
           } else if (state == pjsip_inv_state.PJSIP_INV_STATE_CONFIRMED)
           {
             registerPhoneState();
@@ -216,10 +270,10 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
             {
               if (mAudioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION)
                 mAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-              if (mAudioManager.isMicrophoneMute())
-                mAudioManager.setMicrophoneMute(false);
-              if (mAudioManager.isSpeakerphoneOn())
-                mAudioManager.setSpeakerphoneOn(false);
+//              if (mAudioManager.isMicrophoneMute())
+//                mAudioManager.setMicrophoneMute(false);
+//              if (mAudioManager.isSpeakerphoneOn())
+//                mAudioManager.setSpeakerphoneOn(false);
             }
           } else if (state == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED)
           {
@@ -229,11 +283,12 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
 
             stopRingBackSound();
             unRegisterPhoneState();
+            pjsipHandsFree(false);
           }
 
           if (mChannel != null)
           {
-            Log.i(TAG, "FlutterPjsipPlugin接收到状态" + callInfo.getStateText());
+            Log.i(TAG, "FlutterPjsipPlugin 接收到状态 ==== " + callInfo.getStateText());
             mChannel.invokeMethod(METHOD_CALL_STATUS_CHANGED, buildArguments(callInfo.getStateText(), callInfo.getRemoteUri()));
           }
           break;
@@ -424,7 +479,9 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
         break;
 
       case METHOD_PJSIP_HANDS_FREE:
-        pjsipHandsFree();
+        boolean speakerOn = Boolean.TRUE.equals(call.argument("speakerOn"));
+        boolean speakerResult = pjsipHandsFree(speakerOn);
+        result.success(speakerResult);
         break;
 
       case METHOD_PJSIP_MUTE:
@@ -433,8 +490,22 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
 
         // Additional case for my app, you can adjust what ever you want
       case METHOD_PJSIP_LOGIN_WITH_INFO:
-        Map<String, Object> data = call.arguments();
-        pjsipLoginWithInfo(data);
+        int serverId = call.argument("server_id");
+        int serverPort = call.argument("server_port");
+        String serverUrl = call.argument("server_url");
+        String serverType= call.argument("server_type");
+        String phoneLine= call.argument("phone_line");
+        String phoneLinePassword= call.argument("phone_line_password");
+        String outboundProxy= call.argument("outbound_proxy");
+
+        pjsipLoginWithInfo(serverId, serverPort, serverUrl, serverType, phoneLine, phoneLinePassword, outboundProxy);
+        break;
+
+      case METHOD_PJSIP_TERMINATE_ALL_CALLS:
+        break;
+      case METHOD_PJSIP_MUTE2:
+        boolean mute = Boolean.TRUE.equals(call.argument("mute"));
+        pjsipMute2(mute);
         break;
 
       default:
@@ -486,11 +557,14 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
    * @author ddwsc
    * create at 2025/02/23 17:08
    */
-  private void pjsipLoginWithInfo(Map<String, Object> info) {
-    if (mPjSipManagerState.getCode() == PjSipManagerState.STATE_INITED.getCode())
-      mPjSipManager.login(username, password, ip, port);
-    else
+  private void pjsipLoginWithInfo(int serverId, int serverPort, String serverUrl, String serverType, String phoneLine, String phoneLinePassword, String outboundProxy) {
+    if (mPjSipManagerState.getCode() == PjSipManagerState.STATE_INITED.getCode()) {
+      mPjSipManager.loginWithInfo(serverId, serverPort, phoneLine, phoneLinePassword, serverUrl, serverType, outboundProxy);
+//      mResult.success(true);
+    }
+    else {
       mResult.success(false);
+    }
   }
 
   /**
@@ -629,18 +703,46 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
    * @author Jack Zhang
    * create at 2019-08-22 17:23
    */
-  private void pjsipHandsFree()
+  private boolean pjsipHandsFree(boolean speakerOn)
   {
-    if (mPjSipManagerState == PjSipManagerState.STATE_CONFIRMED)
-    {
-      if (mActivity != null)
-        mActivity.setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
-      mAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-      mAudioManager.setSpeakerphoneOn(!mAudioManager.isSpeakerphoneOn());
-      mResult.success(true);
-    } else
-      mResult.success(false);
+    try {
+      if (speakerOn) {
+        if (mActivity != null)
+          mActivity.setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
+        mAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        mAudioManager.setSpeakerphoneOn(true);
+      } else {
+        mAudioManager.setSpeakerphoneOn(false);
+      }
+      return true;
+    } catch (Exception e) {
+      e.printStackTrace();
+//      throw new RuntimeException(e);
+//      mResult.success(false);
+      return false;
+    }
+
   }
+
+//  private void speaker(boolean speakerOn) {
+//
+//    if (mAudioManager != null) {
+//      if (mCurrentCall == null) mAudioManager.setMode(MODE_NORMAL);
+//      else mAudioManager.setMode(MODE_IN_COMMUNICATION);
+//      Log.d("FlutterPjsipPlugin", "audioMode:" + mAudioManager.getMode());
+//      if (!speakerOn && mCurrentCall != null && BluetoothManager.getInstance().isBluetoothHeadsetAvailable() && AudioSourceUtil.isBluetoothEnabled()) {
+////                app.bluetooth();
+////                Application.app.setPlaybackDev();
+//        requestAudioFocus(AudioManager.STREAM_VOICE_CALL);
+//        BluetoothManager.getInstance().routeAudioToBluetooth();
+//      } else {
+//        BluetoothManager.getInstance().disableBluetoothSCO();
+//      }
+////            if (speakerOn)
+////                app.speaker();
+//      AudioSourceUtil.routeAudioToSpeakerHelper(audioManager, speakerOn);
+//    }
+//  }
 
   /**
    * PjSip静音功能
@@ -653,6 +755,16 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
     if (mPjSipManagerState == PjSipManagerState.STATE_CONFIRMED)
     {
       mAudioManager.setMicrophoneMute(!mAudioManager.isMicrophoneMute());
+      mResult.success(true);
+    } else
+      mResult.success(false);
+  }
+
+  private void pjsipMute2(boolean mute)
+  {
+    if (mPjSipManagerState == PjSipManagerState.STATE_CONFIRMED)
+    {
+      mAudioManager.setMicrophoneMute(mute);
       mResult.success(true);
     } else
       mResult.success(false);
@@ -735,9 +847,9 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
     mSensorManager = (SensorManager) mActivity.getSystemService(Context.SENSOR_SERVICE);
     mSensorManager.registerListener(mSensorEventListener, mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY), SensorManager.SENSOR_DELAY_NORMAL);
 
-    mTelephonyManager = (TelephonyManager) mActivity.getSystemService(Context.TELEPHONY_SERVICE);
-    mSystemPhoneStateListener = new SystemPhoneStateListener();
-    mTelephonyManager.listen(mSystemPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+//    mTelephonyManager = (TelephonyManager) mActivity.getSystemService(Context.TELEPHONY_SERVICE);
+//    mSystemPhoneStateListener = new SystemPhoneStateListener();
+//    mTelephonyManager.listen(mSystemPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
 
     mVibrator = (Vibrator) mActivity.getSystemService(Context.VIBRATOR_SERVICE);
   }
@@ -750,12 +862,12 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
    */
   private void unRegisterPhoneState()
   {
-    if (mSystemPhoneStateListener != null && mTelephonyManager != null)
-    {
-      mTelephonyManager.listen(mSystemPhoneStateListener, PhoneStateListener.LISTEN_NONE);
-      mSystemPhoneStateListener = null;
-      mTelephonyManager = null;
-    }
+//    if (mSystemPhoneStateListener != null && mTelephonyManager != null)
+//    {
+//      mTelephonyManager.listen(mSystemPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+//      mSystemPhoneStateListener = null;
+//      mTelephonyManager = null;
+//    }
     if (mSensorManager != null)
     {
       mSensorManager.unregisterListener(mSensorEventListener);
@@ -805,6 +917,8 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
       mSoundPoolUtil.destroy();
       mSoundPoolUtil = null;
     }
+
+
   }
 
   private SensorEventListener mSensorEventListener = new SensorEventListener()

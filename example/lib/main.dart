@@ -153,7 +153,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _sipHandsFree() async {
-    bool handsFreeSuccess = await _pjsip.pjsipHandsFree();
+    bool handsFreeSuccess = await _pjsip.pjsipHandsFree(true);
     showToast('免提状态更改', handsFreeSuccess);
   }
 

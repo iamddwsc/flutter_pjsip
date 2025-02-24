@@ -1,5 +1,13 @@
 package com.jvtd.flutter_pjsip;
 
+import static org.pjsip.pjsua2.pjsip_cred_data_type.PJSIP_CRED_DATA_PLAIN_PASSWD;
+import static org.pjsip.pjsua2.pjsua_ipv6_use.PJSUA_IPV6_DISABLED;
+import static org.pjsip.pjsua2.pjsua_stun_use.PJSUA_STUN_USE_DISABLED;
+
+import android.os.SystemClock;
+import android.text.TextUtils;
+import android.util.Log;
+
 import com.jvtd.flutter_pjsip.entity.MyAccount;
 import com.jvtd.flutter_pjsip.entity.MyCall;
 import com.jvtd.flutter_pjsip.interfaces.MyAppObserver;
@@ -13,12 +21,12 @@ import org.pjsip.pjsua2.EpConfig;
 import org.pjsip.pjsua2.IpChangeParam;
 import org.pjsip.pjsua2.SipHeader;
 import org.pjsip.pjsua2.SipHeaderVector;
+import org.pjsip.pjsua2.StringVector;
 import org.pjsip.pjsua2.TransportConfig;
 import org.pjsip.pjsua2.UaConfig;
+import org.pjsip.pjsua2.pjsip_status_code;
 import org.pjsip.pjsua2.pjsip_transport_type_e;
 
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -233,7 +241,7 @@ public class PjSipManager
         creds.add(new AuthCredInfo("Digest", "*", username, 0, password));
     }
 
-    mAccount = new MyAccount(mAccountConfig);
+    mAccount = new MyAccount(mAccountConfig, 0, null);
     try
     {
       mAccount.create(mAccountConfig);
@@ -244,106 +252,81 @@ public class PjSipManager
     }
   }
 
-  public boolean loginWithInfo(Map<String, Object> info) {
+  public void loginWithInfo(int serverId, int serverPort, String phoneLine, String phoneLinePassword, String serverUrl, String serverType, String outboundProxy) {
     SipHeaderVector sipHeaders = new SipHeaderVector();
     SipHeader sipHeader = new SipHeader();
     sipHeader.setHName("Call-ID");
 //        Random random = new Random();
     sipHeader.setHValue(UUID.randomUUID().toString());
-    AccountConfig accCfg = new AccountConfig();
+    mAccountConfig = new AccountConfig();
 
 
-//        accCfg.setIdUri("sip:nhcla152@103.57.210.247:51000");
-    accCfg.getNatConfig().setIceEnabled(false);
+//        mAccountConfig.setIdUri("sip:nhcla152@103.57.210.247:51000");
+    mAccountConfig.getNatConfig().setIceEnabled(false);
 
-    accCfg.getVideoConfig().setAutoTransmitOutgoing(false);
-    accCfg.getVideoConfig().setAutoShowIncoming(true);
+    mAccountConfig.getVideoConfig().setAutoTransmitOutgoing(false);
+    mAccountConfig.getVideoConfig().setAutoShowIncoming(true);
 
     String sipURI = "sip:";
     String addTransport = "";
     String port = "";
-    int serverPort = (int) info.get("serverPort");
-    if ((int) info.get("serverPort") > 0)
-      port = ":" + info.serverPort;
+
+    if (serverPort > 0)
+      port = ":" + serverPort;
 //        int switch_port = 51000;
-    if (!TextUtils.isEmpty(info.serverType))
-      addTransport = ";transport=" + info.serverType.toLowerCase();
-    String sipid = sipURI + info.phoneLine + "@" + info.serverUrl /*+ ":" + switch_port*/;
-    String registrarstr = sipURI + info.serverUrl + port + addTransport;
+
+    if (!TextUtils.isEmpty(serverType)) {
+      addTransport = ";transport=" + serverType.toLowerCase();
+    }
+
+    String sipid = sipURI + phoneLine + "@" + serverUrl /*+ ":" + switch_port*/;
+    String registrarstr = sipURI + serverUrl + port + addTransport;
 
 
-    accCfg.getNatConfig().setContactRewriteUse(0);
-    accCfg.getNatConfig().setContactRewriteMethod(0);
-    accCfg.getNatConfig().setContactUseSrcPort(0);
-    accCfg.getNatConfig().setViaRewriteUse(0);
-    accCfg.getNatConfig().setSipStunUse(PJSUA_STUN_USE_DISABLED);
-    accCfg.getMediaConfig().setIpv6Use(PJSUA_IPV6_DISABLED);
+    mAccountConfig.getNatConfig().setContactRewriteUse(0);
+    mAccountConfig.getNatConfig().setContactRewriteMethod(0);
+    mAccountConfig.getNatConfig().setContactUseSrcPort(0);
+    mAccountConfig.getNatConfig().setViaRewriteUse(0);
+    mAccountConfig.getNatConfig().setSipStunUse(PJSUA_STUN_USE_DISABLED);
+    mAccountConfig.getMediaConfig().setIpv6Use(PJSUA_IPV6_DISABLED);
 
-    accCfg.setIdUri(sipid);
+    mAccountConfig.setIdUri(sipid);
 
     sipHeaders.add(sipHeader);
-    accCfg.getRegConfig().setHeaders(sipHeaders);
-    accCfg.getRegConfig().setRegistrarUri(registrarstr);
-    accCfg.getPresConfig().setHeaders(sipHeaders);
-    AuthCredInfoVector creds = accCfg.getSipConfig().getAuthCreds();
+    mAccountConfig.getRegConfig().setHeaders(sipHeaders);
+    mAccountConfig.getRegConfig().setRegistrarUri(registrarstr);
+    mAccountConfig.getPresConfig().setHeaders(sipHeaders);
+    AuthCredInfoVector creds = mAccountConfig.getSipConfig().getAuthCreds();
 
     creds.clear();
 
-    creds.add(new AuthCredInfo("Digest", "*", info.phoneLine, PJSIP_CRED_DATA_PLAIN_PASSWD.swigValue(), info.phoneLinePassword));
-    StringVector proxies = accCfg.getSipConfig().getProxies();
+    creds.add(new AuthCredInfo("Digest", "*", phoneLine, PJSIP_CRED_DATA_PLAIN_PASSWD.swigValue(), phoneLinePassword));
+    StringVector proxies = mAccountConfig.getSipConfig().getProxies();
     proxies.clear();
-    if (!TextUtils.isEmpty(info.outboundProxy)) {
-      String proxystr = sipURI + info.outboundProxy /*+ ":" + port + addTransport*/;
+    if (!TextUtils.isEmpty(outboundProxy)) {
+      String proxystr = sipURI + outboundProxy /*+ ":" + port + addTransport*/;
       proxies.add(proxystr);
     }
-    accCfg.getSipConfig().setProxies(proxies);
+    mAccountConfig.getSipConfig().setProxies(proxies);
     /* Enable ICE */
-//        accCfg.getNatConfig().setIceEnabled(false);
-    if (account != null) {
-      account.delete();
-      account = null;
+//        mAccountConfig.getNatConfig().setIceEnabled(false);
+    if (mAccount != null) {
+      mAccount.delete();
+      mAccount = null;
     }
-    account = new MyAccount(accCfg, info.serverId, info.phoneLine);
+    mAccount = new MyAccount(mAccountConfig, serverId, phoneLine);
 
     try {
-      account.create(accCfg);
+      mAccount.create(mAccountConfig);
     } catch (Exception e) {
-      throw new RuntimeException(e);
+      e.printStackTrace();
+      mAccount = null;
     }
 
-    if (account == null) {
+    if (mAccount == null) {
       throw new RuntimeException("Lỗi login");
     }
 
-    long startTime = System.currentTimeMillis();
-    boolean isRegistered = false;
-    do {
-//                    AccountInfo accountInfo = null;
-      Lifecycle.State state = getLifecycle().getCurrentState();
-      if (state.equals(Lifecycle.State.DESTROYED)) {
-        return false;
-      }
-      try {
-//                        accountInfo = account.getInfo();
-        pjsip_status_code code = account.last_status_code;//accountInfo.getRegStatus();
-        if (code.swigValue() / 100 == 2) {
-          //online
-          return true;
-        } else if (code == pjsip_status_code.PJSIP_SC_PROGRESS) {
-          //connecting...
-        } else {
-          //offline
-          return false;
-        }
-        Log.d(this, "RegisterCode: " + code);
-//                        isRegistered = code == pjsip_status_code.PJSIP_SC_OK;//accountInfo != null && accountInfo.getRegStatus() == pjsip_status_code.PJSIP_SC_OK;
-      } catch (Throwable ex) {
-        ex.printStackTrace();
-      }
-
-      if (!isRegistered) SystemClock.sleep(500);
-    } while (!isRegistered && System.currentTimeMillis() - startTime < 30000);
-    return isRegistered;
   }
 //    return false;
 //  }

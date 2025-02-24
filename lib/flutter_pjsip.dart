@@ -115,8 +115,10 @@ class FlutterPjsip {
   }
 
   ///pjsip免提
-  Future<bool> pjsipHandsFree() async {
-    return await _channel.invokeMethod('method_pjsip_hands_free');
+  Future<bool> pjsipHandsFree(bool speakerOn) async {
+    return await _channel.invokeMethod('method_pjsip_hands_free', {
+      "speakerOn": speakerOn,
+    });
   }
 
   ///pjsip静音
@@ -128,6 +130,7 @@ class FlutterPjsip {
     return await _channel.invokeMethod('method_pjsip_mute2', {"mute": mute});
   }
 
+  // for ios only
   Future<void> terminateAllCalls() async {
     await _channel.invokeMethod('method_pjsip_terminate_all_calls');
   }
