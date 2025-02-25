@@ -23,7 +23,7 @@ apply plugin: 'com.android.library'
 
 android {
     namespace 'com.jvtd.flutter_pjsip'
-    compileSdkVersion 28
+    compileSdkVersion 35
 
     defaultConfig {
         minSdkVersion 16
