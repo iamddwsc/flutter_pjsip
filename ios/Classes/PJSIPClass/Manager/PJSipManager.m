@@ -86,7 +86,6 @@ static dispatch_once_t onceToken;
 
 
 - (BOOL)create {
-    [tmp resetAudioSesssion];
     [tmp configAudioSession:[AVAudioSession sharedInstance]];
     static NSInteger i = 1;
     tmp.isMute = NO;
@@ -443,6 +442,7 @@ static dispatch_once_t onceToken;
     pjsua_acc_id acc_id = [notification.userInfo[@"acc_id"] intValue];
     pjsip_status_code status = [notification.userInfo[@"status"] intValue];
     NSString *statusText = notification.userInfo[@"status_text"];
+    NSString *reason = notification.userInfo[@"reason"];
     
     if (status != PJSIP_SC_OK) {
         NSLog(@"登录失败，错误信息：%d（%@）", status, statusText);
@@ -458,6 +458,7 @@ static dispatch_once_t onceToken;
         // because if login failed, we shouldn't do anything futhur or it can lead to app crash
         NSDictionary * dict = @{@"call_state":@"REGISTER_SUCCESS",
                                 @"remote_uri":@"",
+                                @"reason":reason
         };
         [tmp.methodChannel invokeMethod:method_call_register_successful arguments:dict];
     }
@@ -492,6 +493,7 @@ static dispatch_once_t onceToken;
     status = pjsua_call_make_call(acct_id, &dest_uri, 0, NULL, NULL, &_call_id);
     [[AVSound sharedInstance] playWithString:@"ring_back" type:@"mp3" loop:YES];
     [[AVSound sharedInstance] play];
+    [PJSipManager.shared enableSpeakerForCall:true];
     
     if (status != PJ_SUCCESS) {
         char  errMessage[PJ_ERR_MSG_SIZE];
@@ -520,6 +522,7 @@ static dispatch_once_t onceToken;
     pjsipConfAudioId = [notification.userInfo[@"pjsipConfAudioId"] intValue];
     NSString * address = notification.userInfo[@"remote_address"];
     NSString * stateText = notification.userInfo[@"stateText"];
+    NSString * reason = notification.userInfo[@"reason"];
     NSLog(@"\n通话状态回调通话状态回调通话状态回调通话状态回调通话状态回调----%d---%@",state,stateText);
     if (state == PJSIP_INV_STATE_CONFIRMED||state == PJSIP_INV_STATE_DISCONNECTED) {
         [[AVSound sharedInstance] stop];
@@ -527,8 +530,7 @@ static dispatch_once_t onceToken;
         if (state == PJSIP_INV_STATE_DISCONNECTED) {
             tmp.currentCallId = -1;
             dispatch_async(dispatch_get_main_queue(), ^{
-                [PJSipManager.shared resetAudioSesssion];
-                [PJSipManager.shared enableSpeakerForCall:false];
+                [PJSipManager resetAudioSesssion];
             });
         }
     } else if (state == PJSIP_INV_STATE_EARLY) {
@@ -549,6 +551,7 @@ static dispatch_once_t onceToken;
     }
     NSDictionary * dict = @{@"call_state":stateText,
                             @"remote_uri":address,
+                            @"reason":reason
     };
     [tmp.methodChannel invokeMethod:method_call_status_changed arguments:dict];
     
@@ -638,12 +641,14 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
     NSString *remote_info = [NSString stringWithUTF8String:ci.remote_info.ptr];
     NSString * string1 = [remote_info componentsSeparatedByString:@"@"].firstObject;
     NSString * remote_address = [string1 componentsSeparatedByString:@":"].lastObject;
+    NSString * reason = [NSString stringWithUTF8String:ci.last_status_text.ptr];
     id argument = @{
         @"call_id":@(call_id),
         @"state":@(ci.state),
         @"stateText":remote_state,
         @"pjsipConfAudioId":@(ci.conf_slot),
-        @"remote_address":remote_address
+        @"remote_address":remote_address,
+        @"reason": reason
     };
 //    NSLog(@"======%@", argument);
     
@@ -673,36 +678,6 @@ static void on_call_media_state(pjsua_call_id call_id) {
     }
 }
 
-//static void on_reg_state(pjsua_acc_id acc_id) {
-//    pj_status_t status;
-//    pjsua_acc_info info;
-//    
-//    status = pjsua_acc_get_info(acc_id, &info);
-//    if (status != PJ_SUCCESS) {
-//        return;
-//    }
-//    
-//    dispatch_async(dispatch_get_main_queue(), ^{
-//        // if register success, flush data to notification center
-//        if (info.status == PJSIP_SC_OK) {
-//            id argument = @{
-//                @"acc_id":@(acc_id),
-//                @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
-//                @"status":@(info.status)
-//            };
-//            dispatch_async(dispatch_get_main_queue(), ^{
-//                //注册结果通知
-//                [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
-//            });
-//        } else {
-//            // if register fail, remove the old and register new number if have
-//            [PJSipManager.shared deleteSIPAccountDefaultIfExists];
-//            [PJSipManager.shared performSelector:@selector(requestToRegisterNewSIPAccount)
-//                      withObject:nil afterDelay:1.0];
-//        }
-//    });
-//    PJ_UNUSED_ARG(acc_id);
-//}
 static void on_reg_state(pjsua_acc_id acc_id) {
     pj_status_t status;
     pjsua_acc_info info;
@@ -712,18 +687,52 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         return;
     }
     
-    id argument = @{
-        @"acc_id":@(acc_id),
-        @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
-        @"status":@(info.status)
-    };
-    NSLog(@"%@", argument);
-    
     dispatch_async(dispatch_get_main_queue(), ^{
-        //注册结果通知
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
+        // if register success, flush data to notification center
+        if (info.status == PJSIP_SC_OK) {
+            NSString * reason = [NSString stringWithUTF8String:info.status_text.ptr];
+            id argument = @{
+                @"acc_id":@(acc_id),
+                @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
+                @"status":@(info.status),
+                @"reason":reason
+            };
+            NSLog(@"%@", argument);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                //注册结果通知
+                [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
+            });
+        } else {
+            // if register fail, remove the old and register new number if have
+            [PJSipManager.shared deleteSIPAccountDefaultIfExists];
+            [PJSipManager.shared performSelector:@selector(requestToRegisterNewSIPAccount)
+                      withObject:nil afterDelay:1.0];
+        }
     });
+    PJ_UNUSED_ARG(acc_id);
 }
+//static void on_reg_state(pjsua_acc_id acc_id) {
+//    pj_status_t status;
+//    pjsua_acc_info info;
+//
+//    status = pjsua_acc_get_info(acc_id, &info);
+//    if (status != PJ_SUCCESS) {
+//        return;
+//    }
+//    NSString * reason = [NSString stringWithUTF8String:info.status_text.ptr];
+//    id argument = @{
+//        @"acc_id":@(acc_id),
+//        @"status_text":[NSString stringWithUTF8String:info.status_text.ptr],
+//        @"status":@(info.status),
+//        @"reason":reason
+//    };
+//    NSLog(@"%@", argument);
+//
+//    dispatch_async(dispatch_get_main_queue(), ^{
+//        //注册结果通知
+//        [[NSNotificationCenter defaultCenter] postNotificationName:@"SIPRegisterStatusNotification" object:nil userInfo:argument];
+//    });
+//}
 
 //来电接听
 -(void)incommingCallReceive{
@@ -787,7 +796,7 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     }
 }
-- (void)resetAudioSesssion {
++ (void) resetAudioSesssion {
     UInt32 sessionCategory = kAudioSessionCategory_PlayAndRecord;
     AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);
     UInt32 audioRouteOverride = kAudioSessionOverrideAudioRoute_Speaker;

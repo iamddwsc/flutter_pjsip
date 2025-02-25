@@ -26,8 +26,8 @@ public class SoundPoolUtil
     {
       AudioAttributes audioAttributes = null;
       audioAttributes = new AudioAttributes.Builder()
-              .setUsage(AudioAttributes.USAGE_MEDIA)
-              .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+              .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+              .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
               .build();
 
       mSoundPool = new SoundPool.Builder()
@@ -41,7 +41,7 @@ public class SoundPoolUtil
        * 第二个参数：int streamType：AudioManager中描述的音频流类型
        * 第三个参数：int srcQuality：采样率转换器的质量。 目前没有效果。 使用0作为默认值。
        */
-      mSoundPool = new SoundPool(3, AudioManager.STREAM_MUSIC, 0);
+      mSoundPool = new SoundPool(3, AudioManager.STREAM_VOICE_CALL, 0);
     }
     mSoundPool.setOnLoadCompleteListener(listener);
   }

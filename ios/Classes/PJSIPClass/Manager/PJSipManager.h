@@ -42,6 +42,7 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 + (instancetype) shared;
 //销毁单例
 + (void)attempDealloc;
++ (void)resetAudioSesssion;
 //登录
 - (BOOL)registerAccountWithName:(NSString *)name password:(NSString *)password IPAddress:(NSString *)ipaddress;
 // Personal use

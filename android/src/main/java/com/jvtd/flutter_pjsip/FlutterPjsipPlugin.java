@@ -1,18 +1,23 @@
 package com.jvtd.flutter_pjsip;
 
+import static android.media.AudioManager.MODE_RINGTONE;
+
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.AssetFileDescriptor;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.media.SoundPool;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
@@ -37,8 +42,10 @@ import org.pjsip.pjsua2.pjsip_inv_state;
 import org.pjsip.pjsua2.pjsip_role_e;
 import org.pjsip.pjsua2.pjsip_status_code;
 
+import java.io.FileInputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -85,6 +92,9 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
   private MyCall mCurrentCall;// 记录当前通话，若没有通话，为null
 
   private AudioManager mAudioManager;
+  private MediaPlayer mRingerPlayer;
+  private boolean mAudioFocused;
+
   private SoundPoolUtil mSoundPoolUtil;
   private int mSoundWaitId;
 //  private TelephonyManager mTelephonyManager;
@@ -184,6 +194,7 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
               Log.i(TAG, "FlutterPjsipPlugin" + "REGISTER_SUCCESS");
               mChannel.invokeMethod(METHOD_CALL_REGISTER_SUCCESSFUL, buildArguments("REGISTER_SUCCESS", ""));
               if (mSoundPoolUtil == null) {
+                pjsipHandsFree(true);
                 mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
                 {
                   @Override
@@ -221,6 +232,7 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
           if (state == pjsip_inv_state.PJSIP_INV_STATE_CALLING)
           {
             if (mSoundPoolUtil == null) {
+              pjsipHandsFree(true);
               mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
               {
                 @Override
@@ -241,13 +253,15 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
             if (statusCode == pjsip_status_code.PJSIP_SC_RINGING && callInfo.getRole() == pjsip_role_e.PJSIP_ROLE_UAC) {
               // check and play ringing sound
               if (mSoundPoolUtil == null) {
+                pjsipHandsFree(true);
                 mSoundPoolUtil = new SoundPoolUtil(mActivity, new SoundPool.OnLoadCompleteListener()
                 {
                   @Override
                   public void onLoadComplete(SoundPool soundPool, int sampleId, int status)
                   {
-                    if (mSoundPoolUtil != null)
+                    if (mSoundPoolUtil != null) {
                       mSoundPoolUtil.play(mSoundWaitId);
+                    }
                   }
                 });
                 int rawId = R.raw.ring_back_sound;
@@ -264,8 +278,8 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
             // 通话状态被确认，震动500ms
             if (mVibrator != null)
               mVibrator.vibrate(500);
-            if (mActivity != null)
-              mActivity.setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
+//            if (mActivity != null)
+//              mActivity.setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
             if (mAudioManager != null)
             {
               if (mAudioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION)
@@ -283,13 +297,19 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
 
             stopRingBackSound();
             unRegisterPhoneState();
-            pjsipHandsFree(false);
-          }
+//            pjsipHandsFree(false);
 
+          }
+          Map<String, Object> args;
+          if (state == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED) {
+            args = buildArgumentsWithReason(callInfo.getStateText(), callInfo.getLastReason());
+          } else {
+            args = buildArguments(callInfo.getStateText(), callInfo.getRemoteUri());
+          }
           if (mChannel != null)
           {
             Log.i(TAG, "FlutterPjsipPlugin 接收到状态 ==== " + callInfo.getStateText());
-            mChannel.invokeMethod(METHOD_CALL_STATUS_CHANGED, buildArguments(callInfo.getStateText(), callInfo.getRemoteUri()));
+            mChannel.invokeMethod(METHOD_CALL_STATUS_CHANGED, args);
           }
           break;
 
@@ -724,6 +744,88 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
 
   }
 
+//  private void requestAudioFocus() {
+//    if (!mAudioFocused) {
+//      int res = mAudioManager.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+//      Log.d(null, "Audio focus requested: " + (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ? "Granted" : "Denied"));
+//      if (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) mAudioFocused = true;
+//    }
+//  }
+//
+//  public void disableAudioFocus() {
+//    if (mAudioFocused) {
+//      int res = mAudioManager.abandonAudioFocus(null);
+//      Log.d(null, "Audio focus released a bit later: " + (res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ? "Granted" : "Denied"));
+//      mAudioFocused = false;
+//    }
+//  }
+//
+//  public synchronized void startRinging() {
+////        speaker(true);
+//
+//    mAudioManager.setMode(MODE_RINGTONE);
+//
+//    try {
+//      if ((mAudioManager.getRingerMode() == AudioManager.RINGER_MODE_VIBRATE || mAudioManager.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) && mVibrator != null) {
+//        long[] patern = {0, 1000, 1000};
+//        mVibrator.vibrate(patern, 1);
+//      }
+//
+//      if (mRingerPlayer == null) {
+//        requestAudioFocus();
+//        mRingerPlayer = new MediaPlayer();
+//        mRingerPlayer.setAudioStreamType(AudioManager.STREAM_RING);
+//
+//
+//        onRingerPlayerCreated(mRingerPlayer);
+//        mRingerPlayer.prepare();
+//        mRingerPlayer.setLooping(true);
+//        mRingerPlayer.start();
+//      } else {
+//        Log.w(null, "already ringing");
+//      }
+//    } catch (Exception e) {
+//      Log.e(null, e + "cannot handle incoming call_button_config");
+//    }
+////    isRinging = true;
+//  }
+//
+//  void onRingerPlayerCreated(MediaPlayer mRingerPlayer) {
+////    String uriString = getPref().getString(getString(R.string.pref_audio_ringtone), android.provider.Settings.System.DEFAULT_RINGTONE_URI.toString());
+//    try {
+//      AssetFileDescriptor afd = mActivity.getApplicationContext().getAssets().openFd("ring_back_sound.mp3");
+//      mRingerPlayer.setDataSource(afd.getFileDescriptor(),
+//              afd.getStartOffset(),
+//              afd.getLength());
+//      afd.close();
+//      mRingerPlayer.prepare();
+//      mRingerPlayer.start();
+//
+//    } catch (Exception e) {
+//      Log.e("onRingerPlayerCreated", "Cannot set ringtone: " + e.getMessage());
+//    }
+//  }
+//
+//  private synchronized void stopRinging() {
+//    if (mRingerPlayer != null) {
+//      mRingerPlayer.stop();
+//      mRingerPlayer.release();
+//      mRingerPlayer = null;
+//    }
+//    if (mVibrator != null) {
+//      mVibrator.cancel();
+//    }
+//
+//
+//    mAudioManager.setMode(AudioManager.MODE_NORMAL);
+//
+////    isRinging = false;
+////
+////    if (!BluetoothManager.getInstance().isBluetoothHeadsetAvailable()) {
+////      speaker(true);
+////    }
+//  }
+
 //  private void speaker(boolean speakerOn) {
 //
 //    if (mAudioManager != null) {
@@ -740,7 +842,7 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
 //      }
 ////            if (speakerOn)
 ////                app.speaker();
-//      AudioSourceUtil.routeAudioToSpeakerHelper(audioManager, speakerOn);
+//      AudioSourceUtil.routeAudioToSpeakerHelper(mAudioManager, speakerOn);
 //    }
 //  }
 
@@ -815,6 +917,15 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
     Map<String, Object> result = new HashMap<>();
     result.put("call_state", status);
     result.put("remote_uri", remoteUri != null ? remoteUri : "");
+    return result;
+  }
+  private Map<String, Object> buildArgumentsWithReason(String status, String reason)
+  {
+    Map<String, Object> result = new HashMap<>();
+    result.put("call_state", status);
+    if (reason != null) {
+      result.put("reason", reason);
+    }
     return result;
   }
 
@@ -910,6 +1021,7 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
    */
   private void stopRingBackSound()
   {
+//    stopRinging();
     if (mSoundPoolUtil != null && mSoundWaitId != 0)
     {
       mSoundPoolUtil.stop(mSoundWaitId);
@@ -917,8 +1029,6 @@ public class FlutterPjsipPlugin implements FlutterPlugin, ActivityAware, MethodC
       mSoundPoolUtil.destroy();
       mSoundPoolUtil = null;
     }
-
-
   }
 
   private SensorEventListener mSensorEventListener = new SensorEventListener()
