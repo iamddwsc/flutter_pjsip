@@ -127,7 +127,23 @@ static dispatch_once_t onceToken;
         pjsua_media_config_default(&media_cfg);
         media_cfg.clock_rate = 16000;
         media_cfg.snd_clock_rate = 16000;
-        media_cfg.ec_tail_len = 0;
+        
+        // Enable echo cancellation (important for microphone audio quality)
+        media_cfg.ec_tail_len = PJSUA_DEFAULT_EC_TAIL_LEN; // Enable echo cancellation
+        media_cfg.ec_options = 0; // Use default echo cancellation options
+        
+        // Audio settings for better quality
+        media_cfg.quality = 4; // Audio quality (1-10, higher is better)
+        media_cfg.ptime = 20;  // 20ms packet time
+        media_cfg.no_vad = PJ_FALSE; // Enable Voice Activity Detection
+        
+        // Audio device settings
+        media_cfg.channel_count = 1; // Mono audio
+        media_cfg.audio_frame_ptime = 20;
+        media_cfg.max_media_ports = 8;
+        
+        NSLog(@"PJSIP - Media config: clock_rate=%d, ec_tail_len=%d, quality=%d", 
+              media_cfg.clock_rate, media_cfg.ec_tail_len, media_cfg.quality);
         
         // 日志相关配置
         pjsua_logging_config_default(&log_cfg);
@@ -533,7 +549,17 @@ static dispatch_once_t onceToken;
     if (state == PJSIP_INV_STATE_CONFIRMED||state == PJSIP_INV_STATE_DISCONNECTED) {
         [[AVSound sharedInstance] stop];
         tmp.stateEarlyTriggerTime = 0;
-        if (state == PJSIP_INV_STATE_DISCONNECTED) {
+        if (state == PJSIP_INV_STATE_CONFIRMED) {
+            // Call is now active - ensure proper audio setup
+            NSLog(@"PJSIP - Call confirmed, ensuring audio routing");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [PJSipManager.shared ensureProperAudioRouting];
+                // Test microphone after a short delay
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [PJSipManager.shared testMicrophone];
+                });
+            });
+        } else if (state == PJSIP_INV_STATE_DISCONNECTED) {
             tmp.currentCallId = -1;
             dispatch_async(dispatch_get_main_queue(), ^{
                 [PJSipManager resetAudioSesssion];
@@ -666,11 +692,14 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
 static void on_call_media_state(pjsua_call_id call_id) {
     pjsua_call_info ci;
     pjsua_call_get_info(call_id, &ci);
+    NSLog(@"PJSIP Media State - Call ID: %d, Media Status: %d, Media Count: %d", call_id, ci.media_status, ci.media_cnt);
+    
     // 获取通话信息
     if (ci.rem_offerer && ci.rem_vid_cnt) {
         // 有视频
-        
+        NSLog(@"PJSIP - Call has video");
     }
+    
     // 判断是否开启了视频
     if (ci.state == PJSIP_INV_STATE_CONFIRMED) {
         pj_bool_t has_video = PJ_FALSE;
@@ -678,9 +707,34 @@ static void on_call_media_state(pjsua_call_id call_id) {
             has_video = PJ_TRUE;
         }
     }
-    if (ci.media_status == PJSUA_CALL_MEDIA_ACTIVE) {
-        pjsua_conf_connect(ci.conf_slot, 0);
-        pjsua_conf_connect(0, ci.conf_slot);
+    
+    // Connect/reconnect the call to the sound device
+    if (ci.media_status == PJSUA_CALL_MEDIA_ACTIVE || ci.media_status == PJSUA_CALL_MEDIA_REMOTE_HOLD) {
+        NSLog(@"PJSIP - Connecting audio conference - conf_slot: %d", ci.conf_slot);
+        
+        // Connect the call's audio to the sound device (speakers/earpiece)
+        pj_status_t status1 = pjsua_conf_connect(ci.conf_slot, 0);
+        if (status1 != PJ_SUCCESS) {
+            NSLog(@"PJSIP - Error connecting call to sound device: %d", status1);
+        }
+        
+        // Connect the sound device (microphone) to the call
+        pj_status_t status2 = pjsua_conf_connect(0, ci.conf_slot);
+        if (status2 != PJ_SUCCESS) {
+            NSLog(@"PJSIP - Error connecting microphone to call: %d", status2);
+        }
+        
+        if (status1 == PJ_SUCCESS && status2 == PJ_SUCCESS) {
+            NSLog(@"PJSIP - Audio conference connected successfully");
+        }
+        
+        // Ensure audio session is properly configured for active call
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [PJSipManager.shared ensureProperAudioRouting];
+        });
+        
+    } else if (ci.media_status == PJSUA_CALL_MEDIA_NONE || ci.media_status == PJSUA_CALL_MEDIA_ERROR) {
+        NSLog(@"PJSIP - Media status is NONE or ERROR: %d", ci.media_status);
     }
 }
 
@@ -742,7 +796,22 @@ static void on_reg_state(pjsua_acc_id acc_id) {
 
 //来电接听
 -(void)incommingCallReceive{
-    pjsua_call_answer((pjsua_call_id)_call_id, 200, NULL, NULL);
+    NSLog(@"PJSIP - Answering incoming call with call_id: %d", _call_id);
+    
+    // Ensure audio session is properly set up before answering
+    [self setupAudioSessionForCall];
+    
+    pj_status_t status = pjsua_call_answer((pjsua_call_id)_call_id, 200, NULL, NULL);
+    if (status != PJ_SUCCESS) {
+        NSLog(@"PJSIP - Error answering call: %d", status);
+    } else {
+        NSLog(@"PJSIP - Call answered successfully");
+        
+        // Give a small delay then ensure audio routing
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self ensureProperAudioRouting];
+        });
+    }
 }
 //来电拒绝&&挂断
 - (void)hangup {
@@ -1086,10 +1155,24 @@ static void on_reg_state(pjsua_acc_id acc_id) {
     NSError *error = nil;
     BOOL success = YES;
     
+    NSLog(@"PJSIP - Setting up audio session for call");
+    
+    // First check microphone permission
+    if ([session recordPermission] != AVAudioSessionRecordPermissionGranted) {
+        NSLog(@"PJSIP - Requesting microphone permission");
+        [session requestRecordPermission:^(BOOL granted) {
+            if (!granted) {
+                NSLog(@"PJSIP - Microphone permission denied! Audio won't work properly.");
+            }
+        }];
+        
+        // Continue setup even if permission is pending
+    }
+    
     // Deactivate current session to avoid conflicts
     [session setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
     if (error) {
-        NSLog(@"Warning: Could not deactivate audio session: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Warning: Could not deactivate audio session: %@", error.localizedDescription);
         error = nil;
     }
     
@@ -1098,42 +1181,147 @@ static void on_reg_state(pjsua_acc_id acc_id) {
                        withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
                                   AVAudioSessionCategoryOptionAllowBluetoothA2DP |
                                   AVAudioSessionCategoryOptionDefaultToSpeaker |
-                                  AVAudioSessionCategoryOptionAllowAirPlay)
+                                  AVAudioSessionCategoryOptionAllowAirPlay |
+                                  AVAudioSessionCategoryOptionDuckOthers)
                              error:&error];
     if (!success || error) {
-        NSLog(@"Error setting audio session category for call: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Error setting audio session category for call: %@", error.localizedDescription);
         error = nil;
     }
     
-    // Set mode for voice chat
+    // Set mode for voice chat (this is crucial for microphone processing)
     success = [session setMode:AVAudioSessionModeVoiceChat error:&error];
     if (!success || error) {
-        NSLog(@"Error setting audio session mode for call: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Error setting audio session mode for call: %@", error.localizedDescription);
         error = nil;
     }
     
     // Set preferred sample rate and buffer duration for VoIP
     success = [session setPreferredSampleRate:16000.0 error:&error];
     if (!success || error) {
-        NSLog(@"Error setting sample rate for call: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Error setting sample rate for call: %@", error.localizedDescription);
         error = nil;
     }
     
     success = [session setPreferredIOBufferDuration:0.020 error:&error]; // 20ms
     if (!success || error) {
-        NSLog(@"Error setting buffer duration for call: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Error setting buffer duration for call: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set preferred input and output
+    success = [session setPreferredInputNumberOfChannels:1 error:&error]; // Mono input
+    if (!success || error) {
+        NSLog(@"PJSIP - Error setting input channels: %@", error.localizedDescription);
         error = nil;
     }
     
     // Activate session
     success = [session setActive:YES error:&error];
     if (!success || error) {
-        NSLog(@"Error activating audio session for call: %@", error.localizedDescription);
+        NSLog(@"PJSIP - Error activating audio session for call: %@", error.localizedDescription);
         return NO;
     }
     
-    NSLog(@"Audio session setup successfully for call");
+    // Log current audio session info
+    NSLog(@"PJSIP - Audio session setup completed:");
+    NSLog(@"  - Category: %@", session.category);
+    NSLog(@"  - Mode: %@", session.mode);
+    NSLog(@"  - Sample Rate: %.0f Hz", session.sampleRate);
+    NSLog(@"  - Input Channels: %ld", (long)session.inputNumberOfChannels);
+    NSLog(@"  - Output Channels: %ld", (long)session.outputNumberOfChannels);
+    NSLog(@"  - Record Permission: %ld", (long)[session recordPermission]);
+    
     return YES;
+}
+
+// Ensure proper audio routing for active calls
+- (void)ensureProperAudioRouting {
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSError *error = nil;
+    
+    // Check if we're in a call and ensure proper routing
+    if ([self isCallWasConnected]) {
+        NSLog(@"PJSIP - Ensuring proper audio routing for active call");
+        
+        // Make sure microphone permission is granted
+        if ([session recordPermission] != AVAudioSessionRecordPermissionGranted) {
+            NSLog(@"PJSIP - Microphone permission not granted!");
+            [session requestRecordPermission:^(BOOL granted) {
+                if (granted) {
+                    NSLog(@"PJSIP - Microphone permission granted");
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self ensureProperAudioRouting];
+                    });
+                } else {
+                    NSLog(@"PJSIP - Microphone permission denied!");
+                }
+            }];
+            return;
+        }
+        
+        // Ensure proper category and mode
+        BOOL success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                                withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
+                                           AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                                           AVAudioSessionCategoryOptionDefaultToSpeaker)
+                                      error:&error];
+        if (!success || error) {
+            NSLog(@"PJSIP - Error setting audio category during call: %@", error.localizedDescription);
+            error = nil;
+        }
+        
+        success = [session setMode:AVAudioSessionModeVoiceChat error:&error];
+        if (!success || error) {
+            NSLog(@"PJSIP - Error setting audio mode during call: %@", error.localizedDescription);
+            error = nil;
+        }
+        
+        // Activate session to ensure changes take effect
+        success = [session setActive:YES error:&error];
+        if (!success || error) {
+            NSLog(@"PJSIP - Error activating audio session during call: %@", error.localizedDescription);
+        } else {
+            NSLog(@"PJSIP - Audio routing ensured successfully");
+        }
+    }
+}
+
+// Test microphone functionality
+- (void)testMicrophone {
+    if ([self isCallWasConnected]) {
+        pjsua_call_info ci;
+        pjsua_call_get_info(tmp.currentCallId, &ci);
+        
+        NSLog(@"PJSIP - Testing microphone for call %d", tmp.currentCallId);
+        NSLog(@"  - Conf slot: %d", ci.conf_slot);
+        NSLog(@"  - Media status: %d", ci.media_status);
+        NSLog(@"  - Media count: %d", ci.media_cnt);
+        
+        // Check conference port connections
+        unsigned tx_level, rx_level;
+        pj_status_t status = pjsua_conf_get_signal_level(0, &tx_level, &rx_level);
+        if (status == PJ_SUCCESS) {
+            NSLog(@"  - Sound device TX level: %d, RX level: %d", tx_level, rx_level);
+        }
+        
+        status = pjsua_conf_get_signal_level(ci.conf_slot, &tx_level, &rx_level);
+        if (status == PJ_SUCCESS) {
+            NSLog(@"  - Call conf port TX level: %d, RX level: %d", tx_level, rx_level);
+        }
+        
+        // Check if microphone is connected to call
+        pjsua_conf_port_info port_info;
+        status = pjsua_conf_get_port_info(0, &port_info);
+        if (status == PJ_SUCCESS) {
+            NSLog(@"  - Sound device listeners: %d", port_info.listener_cnt);
+            for (unsigned i = 0; i < port_info.listener_cnt; ++i) {
+                NSLog(@"    - Connected to slot: %d", port_info.listeners[i]);
+            }
+        }
+    } else {
+        NSLog(@"PJSIP - No active call to test microphone");
+    }
 }
 
 @end
