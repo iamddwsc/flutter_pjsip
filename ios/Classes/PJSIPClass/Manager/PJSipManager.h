@@ -96,4 +96,5 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (BOOL)setupAudioSessionForCall;
 - (void)ensureProperAudioRouting;
 - (void)testMicrophone;
+- (void)forceAudioSessionForActiveCall;
 @end
