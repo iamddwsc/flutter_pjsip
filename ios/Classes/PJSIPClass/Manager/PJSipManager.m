@@ -483,6 +483,9 @@ static dispatch_once_t onceToken;
 //打电话
 - (void)dailWithPhonenumber:(NSString *)phonenumber {
     
+    // Setup audio session before making call
+    [self setupAudioSessionForCall];
+    
     pjsua_acc_id acct_id = (pjsua_acc_id)[[NSUserDefaults standardUserDefaults] integerForKey:@"login_account_id"];
     NSString *server = [[NSUserDefaults standardUserDefaults] stringForKey:@"server_uri"];
     NSString *targetUri = [NSString stringWithFormat:@"sip:%@@%@", phonenumber, server];
@@ -509,6 +512,9 @@ static dispatch_once_t onceToken;
 
 // 来电监听
 - (void)handleIncommingCall:(NSNotification *)notification {
+    // Setup audio session for incoming call
+    [self setupAudioSessionForCall];
+    
     [[AVSound sharedInstance] playWithString:@"incoming_ring" type:@"wav" loop:YES];
     [[AVSound sharedInstance] play];
     pjsua_call_id call_id = [notification.userInfo[@"call_id"] intValue];
@@ -788,31 +794,137 @@ static void on_reg_state(pjsua_acc_id acc_id) {
 }
 //免提
 -(void)setAudioSession{
-    if ([[[AVAudioSession sharedInstance] category] isEqualToString:AVAudioSessionCategoryPlayback]){
+    NSError *error = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    BOOL success;
+    
+    if ([session.category isEqualToString:AVAudioSessionCategoryPlayback]){
         //切换为听筒播放
-        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord 
+                           withOptions:AVAudioSessionCategoryOptionAllowBluetooth
+                                 error:&error];
+        if (!success || error) {
+            NSLog(@"Error setting audio session to earpiece: %@", error.localizedDescription);
+            return;
+        }
+        
+        success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:&error];
+        if (!success || error) {
+            NSLog(@"Error overriding audio port to earpiece: %@", error.localizedDescription);
+        }
     }else{
         //切换为扬声器播放
-        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
+        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord 
+                           withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
+                                      AVAudioSessionCategoryOptionDefaultToSpeaker)
+                                 error:&error];
+        if (!success || error) {
+            NSLog(@"Error setting audio session to speaker: %@", error.localizedDescription);
+            return;
+        }
+        
+        success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&error];
+        if (!success || error) {
+            NSLog(@"Error overriding audio port to speaker: %@", error.localizedDescription);
+        }
+    }
+    
+    // Activate the session after changes
+    success = [session setActive:YES error:&error];
+    if (!success || error) {
+        NSLog(@"Error activating audio session: %@", error.localizedDescription);
     }
 }
 + (void) resetAudioSesssion {
-    UInt32 sessionCategory = kAudioSessionCategory_PlayAndRecord;
-    AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);
-    UInt32 audioRouteOverride = kAudioSessionOverrideAudioRoute_Speaker;
-    AudioSessionSetProperty (kAudioSessionProperty_OverrideAudioRoute,sizeof (audioRouteOverride),&audioRouteOverride);
+    NSError *error = nil;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    
+    // Deactivate current session
+    [session setActive:NO error:&error];
+    if (error) {
+        NSLog(@"Error deactivating audio session: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Reset to default category
+    BOOL success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                            withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker
+                                  error:&error];
+    if (!success || error) {
+        NSLog(@"Error resetting audio session category: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set mode back to default
+    success = [session setMode:AVAudioSessionModeDefault error:&error];
+    if (!success || error) {
+        NSLog(@"Error resetting audio session mode: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Override audio route to speaker
+    success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&error];
+    if (!success || error) {
+        NSLog(@"Error overriding audio port: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Activate session
+    success = [session setActive:YES error:&error];
+    if (!success || error) {
+        NSLog(@"Error activating audio session: %@", error.localizedDescription);
+    }
 }
 
 - (void)configAudioSession:(AVAudioSession *)audioSession {
-    [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
-                  withOptions:AVAudioSessionCategoryOptionAllowBluetooth
-                        error:nil];
-    [audioSession setMode:AVAudioSessionModeVoiceChat error:nil];
-    double sampleRate = 16000.0;
-    [audioSession setPreferredSampleRate:sampleRate error:nil];
+    NSError *error = nil;
     
-    NSTimeInterval bufferDuration = .005;
-    [audioSession setPreferredIOBufferDuration:bufferDuration error: nil];
+    // First deactivate the session
+    [audioSession setActive:NO error:&error];
+    if (error) {
+        NSLog(@"Error deactivating audio session: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set category with appropriate options
+    BOOL success = [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
+                                 withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
+                                            AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                                            AVAudioSessionCategoryOptionDefaultToSpeaker)
+                                       error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting audio session category: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set mode for VoIP calls
+    success = [audioSession setMode:AVAudioSessionModeVoiceChat error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting audio session mode: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set preferred sample rate
+    double sampleRate = 16000.0;
+    success = [audioSession setPreferredSampleRate:sampleRate error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting sample rate: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set preferred buffer duration
+    NSTimeInterval bufferDuration = 0.020; // 20ms is more appropriate for VoIP
+    success = [audioSession setPreferredIOBufferDuration:bufferDuration error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting buffer duration: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Activate the session
+    success = [audioSession setActive:YES error:&error];
+    if (!success || error) {
+        NSLog(@"Error activating audio session: %@", error.localizedDescription);
+    }
 }
 #pragma mark--系统电话回调
 -(void)callCenterBlock{
@@ -928,42 +1040,100 @@ static void on_reg_state(pjsua_acc_id acc_id) {
     AVAudioSession *session = [AVAudioSession sharedInstance];
     NSError *error = nil;
     
+    // First, ensure the session is set up for VoIP
+    success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                       withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
+                                  AVAudioSessionCategoryOptionAllowBluetoothA2DP)
+                             error:&error];
+    if (!success || error){
+        NSLog(@"Error setting audio session category: %@", error.localizedDescription);
+        return false;
+    }
+    
+    // Set the mode for voice chat
+    success = [session setMode:AVAudioSessionModeVoiceChat error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting audio session mode: %@", error.localizedDescription);
+        error = nil; // Continue anyway
+    }
+    
     if (speaker) {
-        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
-                           withOptions:AVAudioSessionCategoryOptionMixWithOthers
-                                 error:&error];
-        if (!success){
-            return false;
-        }
-        
         success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&error];
-        if (!success){
-            return false;
-        }
-        
-        success = [session setActive:YES error:&error];
-        if (!success){
+        if (!success || error){
+            NSLog(@"Error enabling speaker: %@", error.localizedDescription);
             return false;
         }
     }else{
-        success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
-                           withOptions:AVAudioSessionCategoryOptionMixWithOthers
-                                 error:&error];
-        if (!success){
-            return false;
-        }
-        
         success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:&error];
-        if (!success){
-            return false;
-        }
-        
-        success = [session setActive:YES error:&error];
-        if (!success){
+        if (!success || error){
+            NSLog(@"Error disabling speaker: %@", error.localizedDescription);
             return false;
         }
     }
+    
+    success = [session setActive:YES error:&error];
+    if (!success || error){
+        NSLog(@"Error activating audio session: %@", error.localizedDescription);
+        return false;
+    }
+    
     return success;
+}
+
+// Setup audio session specifically for VoIP calls
+- (BOOL)setupAudioSessionForCall {
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSError *error = nil;
+    BOOL success = YES;
+    
+    // Deactivate current session to avoid conflicts
+    [session setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
+    if (error) {
+        NSLog(@"Warning: Could not deactivate audio session: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set category for VoIP with proper options
+    success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                       withOptions:(AVAudioSessionCategoryOptionAllowBluetooth |
+                                  AVAudioSessionCategoryOptionAllowBluetoothA2DP |
+                                  AVAudioSessionCategoryOptionDefaultToSpeaker |
+                                  AVAudioSessionCategoryOptionAllowAirPlay)
+                             error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting audio session category for call: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set mode for voice chat
+    success = [session setMode:AVAudioSessionModeVoiceChat error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting audio session mode for call: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Set preferred sample rate and buffer duration for VoIP
+    success = [session setPreferredSampleRate:16000.0 error:&error];
+    if (!success || error) {
+        NSLog(@"Error setting sample rate for call: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    success = [session setPreferredIOBufferDuration:0.020 error:&error]; // 20ms
+    if (!success || error) {
+        NSLog(@"Error setting buffer duration for call: %@", error.localizedDescription);
+        error = nil;
+    }
+    
+    // Activate session
+    success = [session setActive:YES error:&error];
+    if (!success || error) {
+        NSLog(@"Error activating audio session for call: %@", error.localizedDescription);
+        return NO;
+    }
+    
+    NSLog(@"Audio session setup successfully for call");
+    return YES;
 }
 
 @end
