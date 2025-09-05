@@ -17,7 +17,8 @@ A new Flutter plugin.
   s.dependency 'Flutter'
   s.resources = ['Classes/PJSIPClass/Assets/*.png','Classes/PJSIPClass/Assets/*.wav', 'Classes/PJSIPClass/Assets/*.mp3']
   # s.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64' }
-  s.dependency 'pjsip'
+  # Define pod dependencies in Podfile of Flutter ios instead of here.
+  # s.dependency 'pjsip', :git=> 'https://github.com/Nazrul56/pjsip', :tag => '2.15.1'
   s.dependency 'Masonry','~> 0.6.3'
   s.ios.deployment_target = '8.0'
 end
