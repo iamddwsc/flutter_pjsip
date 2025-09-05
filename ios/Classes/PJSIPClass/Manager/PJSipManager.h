@@ -93,4 +93,9 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (void)terminateAllCalls;
 - (void)deleteSIPAccountDefaultIfExists;
 - (BOOL) enableSpeakerForCall:(BOOL)speaker;
+- (void)ensureAudioSessionForActiveCall;
+- (void)forceReconnectAudioConference;
+- (BOOL)getCurrentSpeakerState;
+- (void)configAudioSession:(AVAudioSession *)audioSession preserveAudioRoute:(BOOL)preserveRoute;
+- (void)resetAudioState;
 @end

@@ -26,6 +26,10 @@
 #define method_pjsip_hands_free  @"method_pjsip_hands_free"
 /** 静音*/
 #define method_pjsip_mute  @"method_pjsip_mute"
+/** 静音新方法*/
+#define method_pjsip_mute2  @"method_pjsip_mute2"
+/** 获取扬声器状态*/
+#define method_pjsip_get_speaker_state  @"method_pjsip_get_speaker_state"
 /** pjsip登出*/
 #define method_pjsip_logout  @"method_pjsip_logout"
 /** pjsip销毁*/
@@ -67,11 +71,32 @@
             [[PJSipManager manager] incommingCallReceive];
             result(@(YES));
         }else if ([method isEqualToString:method_pjsip_hands_free]) {/** 免提*/
-            [[PJSipManager manager]setAudioSession];
-            result(@(YES));
+            // Get speakerOn parameter with default value handling
+            BOOL speakerOn = NO; // Default to receiver (earpiece)
+            if (dict && [dict objectForKey:@"speakerOn"]) {
+                speakerOn = [[dict objectForKey:@"speakerOn"] boolValue];
+            }
+            
+            NSLog(@"PJSIP - Hands-free called with speakerOn: %@", speakerOn ? @"YES" : @"NO");
+            BOOL success = [[PJSipManager manager] enableSpeakerForCall:speakerOn];
+            
+            if (success) {
+                NSLog(@"PJSIP - Hands-free operation successful");
+            } else {
+                NSLog(@"PJSIP - Hands-free operation failed");
+            }
+            
+            result(@(success));
         }else if ([method isEqualToString:method_pjsip_mute]) {/** 静音*/
             [[PJSipManager manager] muteMicrophone];
             result(@(YES));
+        }else if ([method isEqualToString:method_pjsip_mute2]) {/** 静音新方法*/
+            BOOL muteValue = [[dict objectForKey:@"mute"] boolValue];
+            BOOL success = [[PJSipManager manager] muteMicrophone2:muteValue];
+            result(@(success));
+        }else if ([method isEqualToString:method_pjsip_get_speaker_state]) {/** 获取扬声器状态*/
+            BOOL speakerState = [[PJSipManager manager] getCurrentSpeakerState];
+            result(@(speakerState));
         }else if ([method isEqualToString:method_pjsip_refuse]) {/** 挂断&&拒接*/
             [[PJSipManager manager]hangup];
             result(@(YES));
