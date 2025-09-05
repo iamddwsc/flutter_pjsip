@@ -660,6 +660,10 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e) {
 static void on_call_media_state(pjsua_call_id call_id) {
     pjsua_call_info ci;
     pjsua_call_get_info(call_id, &ci);
+    
+    NSLog(@"PJSIP Media State - Call ID: %d, Media Status: %d, Media Count: %d", 
+          call_id, ci.media_status, ci.media_cnt);
+    
     // 获取通话信息
     if (ci.rem_offerer && ci.rem_vid_cnt) {
         // 有视频
@@ -673,8 +677,21 @@ static void on_call_media_state(pjsua_call_id call_id) {
         }
     }
     if (ci.media_status == PJSUA_CALL_MEDIA_ACTIVE) {
-        pjsua_conf_connect(ci.conf_slot, 0);
-        pjsua_conf_connect(0, ci.conf_slot);
+        NSLog(@"PJSIP - Connecting audio conference - conf_slot: %d", ci.conf_slot);
+        
+        // Ensure audio session is properly configured when media becomes active
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [tmp ensureAudioSessionForActiveCall];
+        });
+        
+        pj_status_t status1 = pjsua_conf_connect(ci.conf_slot, 0);
+        pj_status_t status2 = pjsua_conf_connect(0, ci.conf_slot);
+        
+        if (status1 == PJ_SUCCESS && status2 == PJ_SUCCESS) {
+            NSLog(@"PJSIP - Audio conference connected successfully");
+        } else {
+            NSLog(@"PJSIP - Failed to connect audio conference: status1=%d, status2=%d", status1, status2);
+        }
     }
 }
 
@@ -804,15 +821,72 @@ static void on_reg_state(pjsua_acc_id acc_id) {
 }
 
 - (void)configAudioSession:(AVAudioSession *)audioSession {
-    [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
-                  withOptions:AVAudioSessionCategoryOptionAllowBluetooth
-                        error:nil];
-    [audioSession setMode:AVAudioSessionModeVoiceChat error:nil];
-    double sampleRate = 16000.0;
-    [audioSession setPreferredSampleRate:sampleRate error:nil];
+    NSError *error = nil;
     
+    // Set category and options
+    BOOL success = [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord
+                                 withOptions:AVAudioSessionCategoryOptionAllowBluetooth
+                                       error:&error];
+    if (!success) {
+        NSLog(@"PJSIP - Failed to set audio category: %@", error.localizedDescription);
+    }
+    
+    // Set mode
+    success = [audioSession setMode:AVAudioSessionModeVoiceChat error:&error];
+    if (!success) {
+        NSLog(@"PJSIP - Failed to set audio mode: %@", error.localizedDescription);
+    }
+    
+    // Set sample rate to match PJSIP
+    double sampleRate = 16000.0;
+    success = [audioSession setPreferredSampleRate:sampleRate error:&error];
+    if (!success) {
+        NSLog(@"PJSIP - Failed to set sample rate: %@", error.localizedDescription);
+    }
+    
+    // Set buffer duration
     NSTimeInterval bufferDuration = .005;
-    [audioSession setPreferredIOBufferDuration:bufferDuration error: nil];
+    success = [audioSession setPreferredIOBufferDuration:bufferDuration error:&error];
+    if (!success) {
+        NSLog(@"PJSIP - Failed to set buffer duration: %@", error.localizedDescription);
+    }
+    
+    NSLog(@"PJSIP - Audio session configured: mode=%@, sampleRate=%.0f, bufferDuration=%.3f", 
+          audioSession.mode, audioSession.sampleRate, audioSession.IOBufferDuration);
+}
+
+// Method to ensure audio session is properly configured for active calls
+- (void)ensureAudioSessionForActiveCall {
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSError *error = nil;
+    
+    // Check if we need to reconfigure
+    BOOL needsReconfigure = NO;
+    
+    if (![session.mode isEqualToString:AVAudioSessionModeVoiceChat]) {
+        needsReconfigure = YES;
+        NSLog(@"PJSIP - Audio mode changed to %@, reconfiguring...", session.mode);
+    }
+    
+    if (fabs(session.sampleRate - 16000.0) > 100) { // Allow some tolerance
+        needsReconfigure = YES;
+        NSLog(@"PJSIP - Sample rate changed to %.0f, reconfiguring...", session.sampleRate);
+    }
+    
+    if (session.IOBufferDuration > 0.01) { // Buffer too large
+        needsReconfigure = YES;
+        NSLog(@"PJSIP - Buffer duration too large (%.3f), reconfiguring...", session.IOBufferDuration);
+    }
+    
+    if (needsReconfigure) {
+        [self configAudioSession:session];
+        
+        // Reactivate session
+        BOOL success = [session setActive:YES error:&error];
+        if (!success) {
+            NSLog(@"PJSIP - Failed to reactivate audio session: %@", error.localizedDescription);
+        }
+    }
 }
 #pragma mark--系统电话回调
 -(void)callCenterBlock{
@@ -883,6 +957,9 @@ static void on_reg_state(pjsua_acc_id acc_id) {
 - (BOOL)muteMicrophone2:(BOOL)mute {
     BOOL connected = [self isCallWasConnected];
     if (connected) {
+        // Ensure audio session is properly configured before mute operation
+        [self ensureAudioSessionForActiveCall];
+        
         BOOL isMuted = mute ? YES : NO;  // Use the provided mute value directly
         @try {
             if (pjsipConfAudioId != 0) {
@@ -904,6 +981,7 @@ static void on_reg_state(pjsua_acc_id acc_id) {
             return NO; // No valid audio ID
         }
         @catch (NSException *exception) {
+            NSLog(@"WC_SIPServer microphone error %@", exception);
             return NO; // Handle exception case
         }
     }
@@ -928,21 +1006,27 @@ static void on_reg_state(pjsua_acc_id acc_id) {
     AVAudioSession *session = [AVAudioSession sharedInstance];
     NSError *error = nil;
     
+    // First ensure basic audio session configuration
+    [self ensureAudioSessionForActiveCall];
+    
     if (speaker) {
         success = [session setCategory:AVAudioSessionCategoryPlayAndRecord
                            withOptions:AVAudioSessionCategoryOptionMixWithOthers
                                  error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to set category for speaker: %@", error.localizedDescription);
             return false;
         }
         
         success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to override to speaker: %@", error.localizedDescription);
             return false;
         }
         
         success = [session setActive:YES error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to activate session for speaker: %@", error.localizedDescription);
             return false;
         }
     }else{
@@ -950,19 +1034,27 @@ static void on_reg_state(pjsua_acc_id acc_id) {
                            withOptions:AVAudioSessionCategoryOptionMixWithOthers
                                  error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to set category for receiver: %@", error.localizedDescription);
             return false;
         }
         
         success = [session overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to override to receiver: %@", error.localizedDescription);
             return false;
         }
         
         success = [session setActive:YES error:&error];
         if (!success){
+            NSLog(@"PJSIP - Failed to activate session for receiver: %@", error.localizedDescription);
             return false;
         }
     }
+    
+    // After changing audio route, ensure our preferred settings are still applied
+    [self ensureAudioSessionForActiveCall];
+    
+    NSLog(@"PJSIP - Audio route changed to %@", speaker ? @"Speaker" : @"Receiver");
     return success;
 }
 
