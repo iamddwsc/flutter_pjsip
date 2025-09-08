@@ -158,8 +158,23 @@ static dispatch_once_t onceToken;
         // 传输类型配置
         status = pjsua_transport_create(PJSIP_TRANSPORT_UDP, &cfg, NULL);
         if (status != PJ_SUCCESS) {
-            NSLog(@"error add transport for pjsua");
+            NSLog(@"error add UDP transport for pjsua");
             return NO;
+        }
+    }
+    
+    // tcp transport - needed for TCP calls
+    {
+        pjsua_transport_config cfg;
+        pjsua_transport_config_default(&cfg);
+        cfg.port = 0; // Use any available port
+        
+        status = pjsua_transport_create(PJSIP_TRANSPORT_TCP, &cfg, NULL);
+        if (status != PJ_SUCCESS) {
+            NSLog(@"error add TCP transport for pjsua: %d", status);
+            // Don't return NO here, continue with UDP only
+        } else {
+            NSLog(@"TCP transport created successfully");
         }
     }
     
@@ -964,6 +979,96 @@ static void on_reg_state(pjsua_acc_id acc_id) {
         }
     }
     return success;
+}
+
+// Direct SIP URI calling for testing with local SIP accounts
+- (BOOL)callDirectToSipUri:(NSString *)sipUri {
+    NSLog(@"PJSIP - Attempting direct call to SIP URI: %@", sipUri);
+    
+    // Check if PJSUA is initialized and running
+    if (pjsua_get_state() != PJSUA_STATE_RUNNING) {
+        NSLog(@"PJSIP - Error: PJSUA not running. Please initialize PJSIP first.");
+        return NO;
+    }
+    
+    // Get the number of accounts
+    unsigned acc_count = pjsua_acc_get_count();
+    NSLog(@"PJSIP - Current account count: %d", acc_count);
+    
+    pjsua_acc_id acc_id = PJSUA_INVALID_ID;
+    
+    // Try to get existing default account first
+    if (acc_count > 0) {
+        acc_id = pjsua_acc_get_default();
+        if (acc_id != PJSUA_INVALID_ID) {
+            // Check if account is valid
+            pjsua_acc_info acc_info;
+            pj_status_t status = pjsua_acc_get_info(acc_id, &acc_info);
+            if (status == PJ_SUCCESS) {
+                NSLog(@"PJSIP - Using existing account ID: %d", acc_id);
+            } else {
+                acc_id = PJSUA_INVALID_ID;
+            }
+        }
+    }
+    
+    // Create a temporary local account if no valid account exists
+    if (acc_id == PJSUA_INVALID_ID) {
+        NSLog(@"PJSIP - Creating temporary local account for direct calling");
+        
+        pjsua_acc_config acc_cfg;
+        pjsua_acc_config_default(&acc_cfg);
+        
+        // Create a local identity (no registration required)
+        NSString *localId = @"sip:flutter_client@192.168.1.100"; // Use a local IP
+        acc_cfg.id = pj_str((char *)[localId UTF8String]);
+        acc_cfg.reg_uri = pj_str(""); // Empty means no registration
+        acc_cfg.reg_timeout = 0; // No registration timeout
+        acc_cfg.publish_enabled = PJ_FALSE; // No presence publishing
+        
+        pj_status_t status = pjsua_acc_add(&acc_cfg, PJ_TRUE, &acc_id);
+        if (status != PJ_SUCCESS) {
+            char errMessage[PJ_ERR_MSG_SIZE];
+            pj_strerror(status, errMessage, sizeof(errMessage));
+            NSLog(@"PJSIP - Failed to create temporary account: %d (%s)", status, errMessage);
+            return NO;
+        }
+        
+        NSLog(@"PJSIP - Created temporary account ID: %d", acc_id);
+        
+        // Wait a bit for account to be ready
+        usleep(100000); // 100ms
+    }
+    
+    NSLog(@"PJSIP - Using account ID: %d for direct call", acc_id);
+    
+    // Prepare the destination URI
+    pj_str_t dest_uri = pj_str((char *)[sipUri UTF8String]);
+    
+    // Make the call
+    pj_status_t status = pjsua_call_make_call(acc_id, &dest_uri, 0, NULL, NULL, &_call_id);
+    
+    if (status == PJ_SUCCESS) {
+        NSLog(@"PJSIP - Direct call initiated successfully to %@, call_id: %d", sipUri, _call_id);
+        
+        // Store call information
+        self.connecting = YES;
+        self.isHangup = NO;
+        
+        // Play ring back tone
+        [[AVSound sharedInstance] playWithString:@"ring_back" type:@"mp3" loop:YES];
+        [[AVSound sharedInstance] play];
+        
+        // Enable speaker by default for testing
+        [self enableSpeakerForCall:YES];
+        
+        return YES;
+    } else {
+        char errMessage[PJ_ERR_MSG_SIZE];
+        pj_strerror(status, errMessage, sizeof(errMessage));
+        NSLog(@"PJSIP - Direct call failed to %@, error: %d (%s)", sipUri, status, errMessage);
+        return NO;
+    }
 }
 
 @end

@@ -9,6 +9,7 @@
 #import "FlutterAppDelegate+Pjsip.h"
 #import "PJSIPViewController.h"
 #import "PJSIPModel.h"
+#include <pjsua-lib/pjsua.h>
 
 /** 信号通道*/
 #define flutterMethodChannel  @"flutter_pjsip"
@@ -30,6 +31,10 @@
 #define method_pjsip_logout  @"method_pjsip_logout"
 /** pjsip销毁*/
 #define method_pjsip_deinit  @"method_pjsip_deinit"
+/** 直接拨打SIP URI*/
+#define method_pjsip_call_direct_uri  @"method_pjsip_call_direct_uri"
+/** 检查PJSIP状态*/
+#define method_pjsip_check_state  @"method_pjsip_check_state"
 
 #define method_pjsip_login_with_info  @"method_pjsip_login_with_info"
 
@@ -50,8 +55,15 @@
         NSString *method=call.method;
         NSDictionary * dict = (NSDictionary *)call.arguments;
         if ([method isEqualToString:method_pjsip_init]) {/** 初始化*/
-            [PJSipManager manager];
-            result(@(YES));
+            NSLog(@"PJSIP - Initializing PJSIP manager...");
+            PJSipManager *manager = [PJSipManager manager];
+            if (manager) {
+                NSLog(@"PJSIP - PJSIP manager initialized successfully");
+                result(@(YES));
+            } else {
+                NSLog(@"PJSIP - Failed to initialize PJSIP manager");
+                result(@(NO));
+            }
         }else if ([method isEqualToString:method_pjsip_login]) {/** 登录*/
             NSLog(@"登录名称：%@",[dict objectForKey:@"username"]);
             if ([[PJSipManager manager] registerAccountWithName:[dict objectForKey:@"username"] password:[dict objectForKey:@"password"] IPAddress:[NSString stringWithFormat:@"%@:%@",[dict objectForKey:@"ip"],[dict objectForKey:@"port"]]]) {
@@ -84,6 +96,27 @@
         }else if ([method isEqualToString:method_pjsip_deinit]) {/** 销毁*/
             [PJSipManager attempDealloc];
             result(@(YES));
+        }else if ([method isEqualToString:method_pjsip_call_direct_uri]) {/** 直接拨打SIP URI*/
+            NSString *sipUri = [dict objectForKey:@"sipUri"];
+            if (sipUri && ![sipUri isEqualToString:@""]) {
+                NSLog(@"PJSIP - Calling direct SIP URI: %@", sipUri);
+                BOOL success = [[PJSipManager manager] callDirectToSipUri:sipUri];
+                result(@(success));
+            } else {
+                NSLog(@"PJSIP - Error: Missing or empty sipUri parameter");
+                result(@(NO));
+            }
+        }else if ([method isEqualToString:method_pjsip_check_state]) {/** 检查PJSIP状态*/
+            pjsua_state state = pjsua_get_state();
+            unsigned acc_count = pjsua_acc_get_count();
+            NSDictionary *stateInfo = @{
+                @"pjsua_state": @(state),
+                @"is_running": @(state == PJSUA_STATE_RUNNING),
+                @"account_count": @(acc_count),
+                @"state_name": state == PJSUA_STATE_RUNNING ? @"RUNNING" : @"NOT_RUNNING"
+            };
+            NSLog(@"PJSIP - State check: %@", stateInfo);
+            result(stateInfo);
         }else if ([method isEqualToString:method_pjsip_login_with_info]) {
             NSLog(@"Login with info: %@",[dict objectForKey:@"username"]);
             if ([[PJSipManager manager] registerSIPAccountWithInfo: dict]) {

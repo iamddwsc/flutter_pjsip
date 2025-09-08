@@ -2,9 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_pjsip/flutter_pjsip.dart';
+import 'package:flutter_pjsip_example/local_sip_test.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 
-void main() => runApp(MyApp());
+void main() => runApp(LocalSipTestApp());
 
 class MyApp extends StatefulWidget {
   @override
@@ -105,6 +106,17 @@ class _MyAppState extends State<MyApp> {
               child: Text('Sip通道销毁'),
               onPressed: () => _sipDispose(),
             ),
+            SizedBox(height: 20),
+            Text('=== 本地SIP测试 ===',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            ElevatedButton(
+              child: Text('登录本地SIP (192.168.1.138)'),
+              onPressed: () => _sipLoginLocal(),
+            ),
+            ElevatedButton(
+              child: Text('呼叫本地用户 ddwsc'),
+              onPressed: () => _sipCallLocalUser(),
+            ),
             Text('电话状态监听：$_calltateText'),
           ],
         ),
@@ -165,6 +177,24 @@ class _MyAppState extends State<MyApp> {
   Future<void> _sipDispose() async {
     await _pjsip.dispose();
     showToast('通道销毁', true);
+  }
+
+  // 本地SIP测试方法
+  Future<void> _sipLoginLocal() async {
+    // 登录到本地SIP服务器，作为另一个用户（比如 testuser）
+    bool loginSuccess = await _pjsip.pjsipLogin(
+        username: 'testuser',
+        password: '', // 本地测试通常不需要密码
+        ip: '192.168.1.138',
+        port: '5080');
+    showToast('本地登录', loginSuccess);
+  }
+
+  Future<void> _sipCallLocalUser() async {
+    // 直接呼叫ddwsc用户
+    bool callSuccess = await _pjsip
+        .pjsipCallDirectUri('sip:ddwsc@192.168.1.138:5080;transport=TCP');
+    showToast('呼叫本地用户', callSuccess);
   }
 
   void showToast(String method, bool success) {

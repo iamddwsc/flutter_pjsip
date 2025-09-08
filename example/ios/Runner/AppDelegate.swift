@@ -8,6 +8,12 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    
+    // Setup PJSIP method channel
+    if let controller = window?.rootViewController as? FlutterViewController {
+      setupPjsip(application, rootController: controller)
+    }
+    
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

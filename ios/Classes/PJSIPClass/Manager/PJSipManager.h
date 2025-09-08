@@ -93,4 +93,7 @@ typedef NS_ENUM(NSUInteger, CallStatusType) {
 - (void)terminateAllCalls;
 - (void)deleteSIPAccountDefaultIfExists;
 - (BOOL) enableSpeakerForCall:(BOOL)speaker;
+
+// Direct SIP URI calling
+- (BOOL)callDirectToSipUri:(NSString *)sipUri;
 @end

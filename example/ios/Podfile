@@ -30,7 +30,10 @@ flutter_ios_podfile_setup
 target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
-  # pod 'pjsip'
+  
+  # Add PJSIP dependency from GitHub
+  # pod 'pjsip', :git => 'https://github.com/Nazrul56/pjsip.git', :commit => '334c0eddfc308ee0e36fc393e1096cc2b67b494a'
+  
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths

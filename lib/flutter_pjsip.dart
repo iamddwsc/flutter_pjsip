@@ -135,6 +135,18 @@ class FlutterPjsip {
     await _channel.invokeMethod('method_pjsip_terminate_all_calls');
   }
 
+  ///直接拨打SIP URI (用于测试和本地SIP账户)
+  Future<bool> pjsipCallDirectUri(String sipUri) async {
+    return await _channel.invokeMethod('method_pjsip_call_direct_uri', {
+      "sipUri": sipUri,
+    });
+  }
+
+  ///检查PJSIP状态
+  Future<Map<dynamic, dynamic>> pjsipCheckState() async {
+    return await _channel.invokeMethod('method_pjsip_check_state');
+  }
+
   ///关闭全部StreamController
   Future<void> dispose() async {
     List<Future> futures = [];
