@@ -1,0 +1,61 @@
+name: Rebuild PJSUA2 Android JNI libs
+
+on:
+  workflow_dispatch:
+    inputs:
+      pj_ref:
+        description: "pjproject ref (tag/branch/commit)"
+        required: true
+        default: "master"
+      abis:
+        description: "Comma-separated ABIs"
+        required: true
+        default: "arm64-v8a,armeabi-v7a,x86,x86_64"
+      app_platform:
+        description: "APP_PLATFORM (Android API)"
+        required: true
+        default: "21"
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;28.2.13676358"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swig
+
+      - name: Rebuild JNI libraries
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/28.2.13676358
+        run: |
+          chmod +x scripts/rebuild_pjsua2_android_16kb.sh
+          ./scripts/rebuild_pjsua2_android_16kb.sh \
+            --pj-ref "${{ github.event.inputs.pj_ref }}" \
+            --abis "${{ github.event.inputs.abis }}" \
+            --app-platform "${{ github.event.inputs.app_platform }}"
+
+      - name: Upload rebuilt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pjsua2-jni-libs-${{ github.run_number }}
+          path: |
+            android/src/main/jniLibs/**/libpjsua2.so
+            scripts/rebuild_pjsua2_android_16kb.sh

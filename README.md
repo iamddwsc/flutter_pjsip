@@ -122,3 +122,52 @@ Android and/or iOS.
 For help getting started with Flutter, view our 
 [online documentation](https://flutter.dev/docs), which offers tutorials, 
 samples, guidance on mobile development, and a full API reference.
+
+## Maintain Android `libpjsua2.so` (16 KB compatible)
+
+This repo includes a reproducible rebuild script:
+
+`scripts/rebuild_pjsua2_android_16kb.sh`
+
+### Local rebuild
+
+Prerequisites:
+
+1. Android NDK r28+ (default script path: `~/Library/Android/sdk/ndk/28.2.13676358`)
+2. `swig`
+3. JDK (Android Studio JBR is used by default on macOS)
+
+Run:
+
+```bash
+./scripts/rebuild_pjsua2_android_16kb.sh --pj-ref master
+```
+
+Recommended for release reproducibility (pin exact upstream version/tag):
+
+```bash
+./scripts/rebuild_pjsua2_android_16kb.sh --pj-ref <tag-or-commit>
+```
+
+The script updates:
+
+- `android/src/main/jniLibs/arm64-v8a/libpjsua2.so`
+- `android/src/main/jniLibs/armeabi-v7a/libpjsua2.so`
+- `android/src/main/jniLibs/x86/libpjsua2.so`
+- `android/src/main/jniLibs/x86_64/libpjsua2.so`
+
+It also validates 16 KB ELF alignment for 64-bit ABIs (`arm64-v8a`, `x86_64`).
+
+### CI rebuild (for contributors)
+
+This repository contains a manual GitHub Actions workflow:
+
+- `.github/workflows/rebuild-pjsua2-android.yml`
+
+Use **Actions -> Rebuild PJSUA2 Android JNI libs -> Run workflow**, then set:
+
+1. `pj_ref` (tag/branch/commit)
+2. `abis`
+3. `app_platform`
+
+The workflow uploads rebuilt `.so` files as downloadable artifacts.
